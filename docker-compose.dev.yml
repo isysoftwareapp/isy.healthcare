@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: isy-healthcare-mongodb-dev
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=DevPassword123!
+      - MONGO_INITDB_DATABASE=isy_clinic
+    volumes:
+      - mongodb_data_dev:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    ports:
+      - "27017:27017"
+
+  app:
+    build: .
+    container_name: isy-healthcare-dev
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_APP_NAME=ISY Healthcare (Dev)
+      - NEXT_PUBLIC_APP_URL=http://localhost
+      - MONGODB_URI=mongodb://admin:DevPassword123!@mongodb:27017/isy_clinic?authSource=admin
+      - NEXTAUTH_URL=http://localhost
+      - NEXTAUTH_SECRET=DEV_SECRET_KEY_FOR_LOCAL_TESTING_MIN_32_CHARS
+      - JWT_SECRET=DEV_JWT_SECRET_FOR_LOCAL_TESTING
+      - MAX_FILE_SIZE=10485760
+      - UPLOAD_DIR=/app/uploads
+      - DEFAULT_CURRENCY=IDR
+      - EXCHANGE_RATE_EUR_TO_IDR=17500
+      - EXCHANGE_RATE_USD_TO_IDR=15800
+    depends_on:
+      - mongodb
+    volumes:
+      - ./app:/app/app
+      - ./components:/app/components
+      - ./lib:/app/lib
+      - ./models:/app/models
+      - ./public:/app/public
+      - ./types:/app/types
+
+  nginx:
+    image: nginx:alpine
+    container_name: isy-healthcare-nginx-dev
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  mongodb_data_dev:
+    driver: local

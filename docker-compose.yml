@@ -1,0 +1,62 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: isy-healthcare-mongodb
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=SecurePassword123!
+      - MONGO_INITDB_DATABASE=isy_clinic
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    ports:
+      - "27017:27017"
+
+  app:
+    build: .
+    container_name: isy-healthcare
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_APP_NAME=ISY Healthcare
+      - NEXT_PUBLIC_APP_URL=https://health.isy.software
+      - MONGODB_URI=mongodb://admin:SecurePassword123!@mongodb:27017/isy_clinic?authSource=admin
+      - NEXTAUTH_URL=https://health.isy.software
+      - NEXTAUTH_SECRET=ISY_HEALTHCARE_SECRET_KEY_CHANGE_IN_PRODUCTION_MIN_32_CHARACTERS_LONG
+      - JWT_SECRET=ISY_HEALTHCARE_JWT_SECRET_CHANGE_IN_PRODUCTION_SECURE_KEY
+      - MAX_FILE_SIZE=10485760
+      - UPLOAD_DIR=/app/uploads
+      - DEFAULT_CURRENCY=IDR
+      - EXCHANGE_RATE_EUR_TO_IDR=17500
+      - EXCHANGE_RATE_USD_TO_IDR=15800
+    depends_on:
+      - mongodb
+
+  nginx:
+    image: nginx:alpine
+    container_name: isy-healthcare-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: isy-healthcare-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  mongodb_data:
+    driver: local
