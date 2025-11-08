@@ -2,7 +2,7 @@
 FROM node:20-alpine
 
 # Install build dependencies for native modules (bcrypt, etc)
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 build-base
 
 # Set working directory
 WORKDIR /app
