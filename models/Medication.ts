@@ -261,7 +261,8 @@ MedicationSchema.index({ clinic: 1, name: 1 });
 MedicationSchema.index({ clinic: 1, isActive: 1 });
 MedicationSchema.index({ clinic: 1, hasLowStock: 1 });
 MedicationSchema.index({ clinic: 1, hasExpiringSoon: 1 });
-MedicationSchema.index({ sku: 1 });
+// `sku` is declared with `unique: true` on the field. Remove duplicate index
+// declaration to avoid Mongoose duplicate index warnings.
 MedicationSchema.index({ barcode: 1 });
 
 // Pre-save middleware to update alert flags

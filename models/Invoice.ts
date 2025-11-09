@@ -334,7 +334,8 @@ const InvoiceSchema = new Schema<IInvoice>(
 InvoiceSchema.index({ clinic: 1, createdAt: -1 });
 InvoiceSchema.index({ patient: 1, createdAt: -1 });
 InvoiceSchema.index({ status: 1, dueDate: 1 });
-InvoiceSchema.index({ invoiceNumber: 1 }, { unique: true });
+// `invoiceNumber` is declared with `unique: true` on the field itself above.
+// Remove duplicate schema-level unique index declaration to prevent Mongoose warnings.
 
 // Pre-save middleware to calculate totals and balance
 InvoiceSchema.pre("save", function (next) {

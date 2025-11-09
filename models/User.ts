@@ -127,7 +127,8 @@ const UserSchema = new Schema<IUser>(
 );
 
 // Indexes for performance
-UserSchema.index({ email: 1 }, { unique: true });
+// NOTE: `email` field already includes `unique: true`. Removing the duplicate
+// schema-level unique index declaration to avoid Mongoose duplicate index warnings.
 UserSchema.index({ role: 1, isActive: 1 });
 UserSchema.index({ assignedClinics: 1 });
 

@@ -1,6 +1,6 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcrypt";
+import { compare } from "@/lib/hash";
 import dbConnect from "@/lib/mongodb";
 import User from "@/models/User";
 
@@ -27,7 +27,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid credentials or account inactive");
         }
 
-        const isPasswordValid = await bcrypt.compare(
+        const isPasswordValid = await compare(
           credentials.password,
           user.password
         );

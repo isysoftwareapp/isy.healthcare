@@ -5,25 +5,25 @@ export interface IPatient extends Document {
   patientId: string; // Unique auto-generated ID (FR 1.2)
   firstName: string;
   lastName: string;
-  dateOfBirth: Date;
-  gender: "Male" | "Female" | "Other";
+  dateOfBirth?: Date;
+  gender?: "Male" | "Female" | "Other" | "male" | "female" | "other";
   email?: string;
-  phoneNumber: string;
+  phoneNumber?: string;
 
   // Address
-  address: {
-    street: string;
-    city: string;
-    state: string;
-    country: string;
-    postalCode: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
   };
 
   // Emergency Contact (FR 1.1)
-  emergencyContact: {
-    name: string;
-    relationship: string;
-    phoneNumber: string;
+  emergencyContact?: {
+    name?: string;
+    relationship?: string;
+    phoneNumber?: string;
   };
 
   // Insurance Details (FR 1.1)
@@ -42,11 +42,11 @@ export interface IPatient extends Document {
   passportScan?: string; // URL or encrypted storage path (NFR 1.4 - highest encryption)
 
   // Patient Category for pricing (FR 4.5)
-  category: "Local" | "Local_Insurance" | "Tourist" | "Tourist_Insurance";
+  category?: "Local" | "Local_Insurance" | "Tourist" | "Tourist_Insurance";
 
   // Multi-clinic support
-  primaryClinic: mongoose.Types.ObjectId; // Main clinic
-  visitedClinics: mongoose.Types.ObjectId[]; // All clinics patient has visited
+  primaryClinic?: mongoose.Types.ObjectId; // Main clinic
+  visitedClinics?: mongoose.Types.ObjectId[]; // All clinics patient has visited
 
   // Status
   isActive: boolean;
@@ -80,12 +80,10 @@ const PatientSchema = new Schema<IPatient>(
     },
     dateOfBirth: {
       type: Date,
-      required: true,
     },
     gender: {
       type: String,
-      required: true,
-      enum: ["Male", "Female", "Other"],
+      enum: ["Male", "male", "Female", "female", "Other", "other"],
     },
     email: {
       type: String,
@@ -94,7 +92,6 @@ const PatientSchema = new Schema<IPatient>(
     },
     phoneNumber: {
       type: String,
-      required: true,
     },
     address: {
       street: String,
@@ -104,15 +101,9 @@ const PatientSchema = new Schema<IPatient>(
       postalCode: String,
     },
     emergencyContact: {
-      name: {
-        type: String,
-        required: true,
-      },
+      name: String,
       relationship: String,
-      phoneNumber: {
-        type: String,
-        required: true,
-      },
+      phoneNumber: String,
     },
     insuranceDetails: {
       providerId: {
@@ -143,7 +134,6 @@ const PatientSchema = new Schema<IPatient>(
     primaryClinic: {
       type: Schema.Types.ObjectId,
       ref: "Clinic",
-      required: true,
       index: true,
     },
     visitedClinics: [
@@ -168,7 +158,8 @@ const PatientSchema = new Schema<IPatient>(
 );
 
 // Indexes for performance and search optimization
-PatientSchema.index({ patientId: 1 }, { unique: true });
+// NOTE: `patientId` is already declared with `unique: true` on the field.
+// Avoid duplicate index declarations which emit Mongoose warnings.
 PatientSchema.index({ firstName: "text", lastName: "text", patientId: "text" });
 PatientSchema.index({ phoneNumber: 1 });
 PatientSchema.index({ primaryClinic: 1, isActive: 1 });
@@ -182,8 +173,10 @@ PatientSchema.virtual("fullName").get(function (this: IPatient) {
 
 // Virtual for age calculation
 PatientSchema.virtual("age").get(function (this: IPatient) {
+  if (!this.dateOfBirth) return undefined;
+
   const today = new Date();
-  const birthDate = new Date(this.dateOfBirth);
+  const birthDate = new Date(this.dateOfBirth as Date);
   let age = today.getFullYear() - birthDate.getFullYear();
   const monthDiff = today.getMonth() - birthDate.getMonth();
 

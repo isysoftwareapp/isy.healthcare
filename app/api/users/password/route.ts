@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import dbConnect from "@/lib/mongodb";
 import User from "@/models/User";
-import bcrypt from "bcrypt";
+import { compare, hash } from "@/lib/hash";
 
 export async function PATCH(request: Request) {
   try {
@@ -22,7 +22,7 @@ export async function PATCH(request: Request) {
     }
 
     // Verify current password
-    const isValid = await bcrypt.compare(currentPassword, user.password);
+    const isValid = await compare(currentPassword, user.password);
     if (!isValid) {
       return NextResponse.json(
         { error: "Current password is incorrect" },
@@ -31,7 +31,7 @@ export async function PATCH(request: Request) {
     }
 
     // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await hash(newPassword, 10);
 
     // Update password
     user.password = hashedPassword;

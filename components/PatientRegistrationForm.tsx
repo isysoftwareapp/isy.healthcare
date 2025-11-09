@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { User, Camera, Upload, Save, X } from "lucide-react";
 import WebcamCapture from "./WebcamCapture";
@@ -40,6 +40,7 @@ interface PatientFormData {
   };
   passportNumber?: string;
   nationality?: string;
+  primaryClinic?: string;
 }
 
 interface PatientRegistrationFormProps {
@@ -83,7 +84,40 @@ export default function PatientRegistrationForm({
       currentMedications: "",
       pastSurgeries: "",
     },
+    primaryClinic: undefined,
   });
+
+  const [clinics, setClinics] = useState<Array<{ _id: string; name: string }>>(
+    []
+  );
+  const [clinicsLoading, setClinicsLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      setClinicsLoading(true);
+      try {
+        const res = await fetch("/api/clinics");
+        if (!res.ok) return;
+        const json = await res.json();
+        // Expecting { data: [...] } or array — normalize
+        const list = Array.isArray(json) ? json : json.data || [];
+        if (mounted)
+          setClinics(
+            list.map((c: any) => ({ _id: c._id || c.id, name: c.name }))
+          );
+      } catch (err) {
+        console.warn("Failed to load clinics", err);
+      } finally {
+        if (mounted) setClinicsLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const [photoData, setPhotoData] = useState<string>("");
   const [passportFile, setPassportFile] = useState<File | null>(null);
@@ -152,7 +186,11 @@ export default function PatientRegistrationForm({
         // Medical history is optional but show warning if empty
         break;
       case 4:
-        // Documents are optional
+        // Documents are optional, but ensure a primary clinic exists (either chosen or from session)
+        if (!formData.primaryClinic && !session?.user?.primaryClinic) {
+          setError("Please select a primary clinic for this patient");
+          return false;
+        }
         break;
     }
 
@@ -183,7 +221,8 @@ export default function PatientRegistrationForm({
         ...formData,
         photo: photoData,
         passportScan: encryptedPassportData,
-        primaryClinic: session?.user?.primaryClinic,
+        // prefer explicit selection, fall back to user's primary clinic
+        primaryClinic: formData.primaryClinic ?? session?.user?.primaryClinic,
       };
 
       const response = await fetch("/api/patients", {
@@ -645,6 +684,38 @@ export default function PatientRegistrationForm({
                   passportFile ? URL.createObjectURL(passportFile) : ""
                 }
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Primary Clinic <span className="text-red-500">*</span>
+              </label>
+              <div>
+                {clinicsLoading ? (
+                  <div className="text-sm text-gray-600">
+                    Loading clinics...
+                  </div>
+                ) : (
+                  <select
+                    name="primaryClinic"
+                    value={formData.primaryClinic ?? ""}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        primaryClinic: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Select a clinic</option>
+                    {clinics.map((c) => (
+                      <option key={c._id} value={c._id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
 
             <div className="rounded-md bg-blue-50 p-4">

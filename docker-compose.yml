@@ -14,12 +14,16 @@ services:
       - "27017:27017"
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        USE_BCRYPTJS: "1"
     container_name: isy-healthcare
     ports:
       - "3000:3000"
     restart: unless-stopped
     environment:
+      - USE_BCRYPTJS=1
       - NODE_ENV=production
       - NEXT_PUBLIC_APP_NAME=ISY Healthcare
       - NEXT_PUBLIC_APP_URL=https://health.isy.software

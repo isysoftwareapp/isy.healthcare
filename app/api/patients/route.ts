@@ -52,7 +52,7 @@ export const GET = withPermission(
     const patients = await Patient.find(query)
       .select("-passportScan") // Exclude encrypted passport data
       .populate("primaryClinic", "name")
-      .populate("insurance.providerId", "name")
+      .populate("insuranceDetails.providerId", "name")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
@@ -84,26 +84,35 @@ export const POST = withPermission(
     try {
       const body = await req.json();
 
-      // Validate required fields
-      if (!body.firstName || !body.lastName || !body.dateOfBirth) {
+      // Validate required fields (only firstName and lastName are mandatory)
+      if (!body.firstName || !body.lastName) {
         return NextResponse.json(
           {
             success: false,
-            error: "Missing required fields: firstName, lastName, dateOfBirth",
+            error: "Missing required fields: firstName, lastName",
           },
           { status: 400 }
         );
       }
 
-      // Set primary clinic from session if not provided
-      if (!body.primaryClinic) {
-        body.primaryClinic = user.primaryClinic;
+      // Determine primary clinic: prefer body, fall back to user's primaryClinic
+      const primaryClinic = body.primaryClinic ?? user.primaryClinic;
+
+      if (!primaryClinic) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "No primary clinic specified",
+          },
+          { status: 400 }
+        );
       }
 
       // Verify user has access to the specified clinic
+      const clinicIdStr = primaryClinic.toString();
       const userHasAccess =
-        body.primaryClinic.toString() === user.primaryClinic?.toString() ||
-        user.assignedClinics?.includes(body.primaryClinic.toString());
+        clinicIdStr === user.primaryClinic?.toString() ||
+        user.assignedClinics?.includes(clinicIdStr);
 
       if (!userHasAccess && user.role !== UserRole.Admin) {
         return NextResponse.json(
@@ -115,22 +124,33 @@ export const POST = withPermission(
         );
       }
 
+      // If dateOfBirth provided, ensure it's a Date
+      if (body.dateOfBirth) {
+        try {
+          body.dateOfBirth = new Date(body.dateOfBirth);
+        } catch (e) {
+          // leave as-is; Mongoose will validate if needed
+        }
+      }
+
       // Generate patient ID
-      const clinicCode = body.primaryClinic.toString().slice(-4).toUpperCase();
+      const clinicCode = clinicIdStr.slice(-4).toUpperCase();
       const timestamp = Date.now().toString().slice(-6);
       const random = Math.random().toString(36).substring(2, 5).toUpperCase();
       body.patientId = `PAT-${clinicCode}-${timestamp}-${random}`;
 
       // Initialize visitedClinics with primary clinic
-      body.visitedClinics = [body.primaryClinic];
+      body.primaryClinic = primaryClinic;
+      body.visitedClinics = [primaryClinic];
 
       // Create patient
       const patient = await Patient.create(body);
 
       // Populate references
       await patient.populate("primaryClinic", "name");
-      if (body.insurance?.providerId) {
-        await patient.populate("insurance.providerId", "name");
+      // The schema stores insurance under `insuranceDetails` — populate if present
+      if (patient.insuranceDetails?.providerId) {
+        await patient.populate("insuranceDetails.providerId", "name");
       }
 
       // Remove sensitive data from response
