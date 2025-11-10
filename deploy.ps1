@@ -74,6 +74,12 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Files staged in remote release dir: $releaseDir" -ForegroundColor Green
 
+# Template nginx configuration files for the target domain so the deployed
+# nginx will use the correct server_name and certificate paths.
+Write-Host "Templating nginx configs with domain $DOMAIN on remote" -ForegroundColor Yellow
+ssh -i $SSH_KEY ${VPS_USER}@${VPS_IP} "sudo sed -i \"s/server_name .*/server_name $DOMAIN;/g\" ${releaseDir}/nginx-ssl.conf ${releaseDir}/nginx-http-only.conf || true; sudo sed -i \"s#/etc/letsencrypt/live/[^/]*/#/etc/letsencrypt/live/$DOMAIN/#g\" ${releaseDir}/nginx-ssl.conf || true"
+
+
 
 # Restore nginx.conf backup if it exists
 if (Test-Path "nginx.conf.backup") {
