@@ -170,6 +170,13 @@ SERVICE_PORT="${SERVICE_PORT:-3000}"
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-900}"   # seconds to wait for build (unused currently)
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"  # seconds to wait for app health
 
+# Certbot settings (can be overridden via env)
+DOMAIN="${DOMAIN:-health.isy.software}"
+# Default email (user provided). Can be overridden with CERTBOT_EMAIL env var.
+CERTBOT_EMAIL="${CERTBOT_EMAIL:-info.isysoftware@gmail.com}"
+# If set to 1, use Let's Encrypt staging environment for testing.
+CERTBOT_STAGING="${CERTBOT_STAGING:-0}"
+
 echo "Stopping any existing services (docker compose down)..."
 sudo docker compose down --remove-orphans --rmi all || true
 
@@ -178,6 +185,17 @@ sudo docker builder prune -af || true
 
 echo "Building and starting services from release dir: $RELEASE_DIR"
 cd "$RELEASE_DIR"
+
+# Remove any existing containers with the compose service names to avoid name
+# conflicts when docker compose attempts to create containers with fixed names.
+for NAME in isy-healthcare isy-healthcare-nginx isy-healthcare-certbot isy-healthcare-mongodb; do
+  CID=$(sudo docker ps -aq --filter "name=$NAME" || true)
+  if [ -n "$CID" ]; then
+    echo "Found existing container(s) for $NAME: $CID - removing to avoid conflict"
+    sudo docker rm -f $CID || true
+  fi
+done
+
 
 if ! sudo sh -c 'COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker compose build --no-cache --pull --progress=plain'; then
   echo "docker compose build failed. Aborting deploy." >&2
@@ -190,6 +208,139 @@ if ! sudo docker compose up -d --force-recreate --renew-anon-volumes; then
   sudo rm -rf "$RELEASE_DIR" || true
   exit 1
 fi
+
+# After compose brought up containers (including certbot), ensure certificates
+# exist for the DOMAIN. If missing, run a one-shot certbot container to issue
+# them into the compose-created volumes so nginx can start with SSL files.
+ensure_certs() {
+  echo "Checking for existing certificates for $DOMAIN"
+  # Prefer volumes actually mounted into the running certbot container (if present).
+  CERTBOT_ETC_VOL=""
+  CERTBOT_WWW_VOL=""
+  if sudo docker ps -a --format '{{.Names}}' | grep -q '^isy-healthcare-certbot$'; then
+    # inspect mounts of the certbot container to find the exact volumes used
+    CERTBOT_ETC_VOL=$(sudo docker inspect --format "{{range .Mounts}}{{if eq .Destination \"/etc/letsencrypt\"}}{{.Name}}{{end}}{{end}}" isy-healthcare-certbot || true)
+    CERTBOT_WWW_VOL=$(sudo docker inspect --format "{{range .Mounts}}{{if eq .Destination \"/var/www/certbot\"}}{{.Name}}{{end}}{{end}}" isy-healthcare-certbot || true)
+  fi
+  # Fallback: pick the newest named certbot volumes if the container isn't available or mounts not found
+  if [ -z "$CERTBOT_ETC_VOL" ] || [ -z "$CERTBOT_WWW_VOL" ]; then
+    CERTBOT_ETC_VOL=$(sudo docker volume ls --format '{{.Name}}' | grep 'certbot_etc' | sort -r | head -n1 || true)
+    CERTBOT_WWW_VOL=$(sudo docker volume ls --format '{{.Name}}' | grep 'certbot_www' | sort -r | head -n1 || true)
+  fi
+
+  # If we still couldn't find certbot volumes, create fallback volumes and
+  # attempt issuance using a one-shot certbot run that mounts them. The
+  # fallback names can be overridden by environment variables
+  # CERTBOT_ETC_FALLBACK and CERTBOT_WWW_FALLBACK.
+  if [ -z "$CERTBOT_ETC_VOL" ] || [ -z "$CERTBOT_WWW_VOL" ]; then
+    echo "Could not discover existing certbot volumes. Creating fallback volumes and running certbot to populate them."
+    CERTBOT_ETC_VOL="${CERTBOT_ETC_FALLBACK:-certbot_etc}"
+    CERTBOT_WWW_VOL="${CERTBOT_WWW_FALLBACK:-certbot_www}"
+    echo "Creating volumes: $CERTBOT_ETC_VOL and $CERTBOT_WWW_VOL"
+    sudo docker volume create "$CERTBOT_ETC_VOL" || true
+    sudo docker volume create "$CERTBOT_WWW_VOL" || true
+
+    echo "Running one-shot certbot to obtain certificates (fallback). This will bind host port 80 temporarily."
+    STAGING_FLAG=""
+    if [ "${CERTBOT_STAGING}" = "1" ]; then
+      STAGING_FLAG="--staging"
+    fi
+    if ! sudo docker run --rm -p 80:80 \
+      -v "$CERTBOT_ETC_VOL":/etc/letsencrypt \
+      -v "$CERTBOT_WWW_VOL":/var/www/certbot \
+      certbot/certbot certonly $STAGING_FLAG \
+        --webroot -w /var/www/certbot \
+        -d "$DOMAIN" \
+        --email "$CERTBOT_EMAIL" \
+        --agree-tos --no-eff-email --non-interactive; then
+      echo "Fallback one-shot certbot run failed to obtain certificates for $DOMAIN" >&2
+      return 2
+    fi
+    echo "Fallback certbot run succeeded; certificates stored in $CERTBOT_ETC_VOL"
+  fi
+
+  if [ -z "$CERTBOT_ETC_VOL" ] || [ -z "$CERTBOT_WWW_VOL" ]; then
+    echo "Could not find certbot volumes (certbot_etc / certbot_www). Skipping automated cert issuance." >&2
+    return 1
+  fi
+
+  echo "Found volumes: certs=$CERTBOT_ETC_VOL webroot=$CERTBOT_WWW_VOL"
+
+  # Check if cert already exists (use a small container to inspect the volume)
+  if sudo docker run --rm -v "$CERTBOT_ETC_VOL":/etc/letsencrypt alpine sh -c 'test -d /etc/letsencrypt/live/'"$DOMAIN"' && echo present || echo missing' | grep -q present; then
+    echo "Certificates already present for $DOMAIN"
+    return 0
+  fi
+
+  echo "No certificates found for $DOMAIN - attempting to obtain via certbot"
+  echo "CERTBOT_EMAIL=$CERTBOT_EMAIL"
+
+  # Wait for nginx (or any service) to be listening on port 80 so HTTP-01
+  # challenges created in the webroot can be fetched. Retry up to 30s.
+  echo "Waiting for port 80 to be reachable (so webroot challenges can be served)..."
+  WAITED=0
+  until sudo ss -lntp 2>/dev/null | grep -q ':80\s' || [ $WAITED -ge 30 ]; do
+    sleep 2
+    WAITED=$((WAITED+2))
+    echo "  waiting... ${WAITED}s"
+  done
+  if [ $WAITED -ge 30 ]; then
+    echo "Port 80 not reachable on host after ${WAITED}s — webroot challenges may fail. Will still attempt but may fallback to standalone."
+  else
+    echo "Port 80 reachable — proceeding with webroot issuance attempts."
+  fi
+
+  # Try webroot issuance up to 3 times (use existing certbot container if present)
+  ATTEMPT=0
+  MAX_ATTEMPTS=3
+  SUCCESS=0
+  while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    ATTEMPT=$((ATTEMPT+1))
+    echo "Certbot webroot attempt $ATTEMPT/$MAX_ATTEMPTS"
+    if sudo docker ps -a --format '{{.Names}}' | grep -q '^isy-healthcare-certbot$'; then
+      # ensure it's running
+      if ! sudo docker ps --format '{{.Names}}' | grep -q '^isy-healthcare-certbot$'; then
+        echo "Starting existing certbot container"
+        sudo docker start isy-healthcare-certbot || true
+      fi
+      if sudo docker exec isy-healthcare-certbot certbot certonly --webroot -w /var/www/certbot -d "$DOMAIN" --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email --non-interactive; then
+        SUCCESS=1
+        break
+      fi
+    else
+      if sudo docker run --rm -v "$CERTBOT_ETC_VOL":/etc/letsencrypt -v "$CERTBOT_WWW_VOL":/var/www/certbot certbot/certbot certonly --webroot -w /var/www/certbot -d "$DOMAIN" --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email --non-interactive; then
+        SUCCESS=1
+        break
+      fi
+    fi
+    echo "Webroot attempt $ATTEMPT failed, retrying after delay..."
+    sleep $((ATTEMPT * 5))
+  done
+
+  if [ $SUCCESS -eq 0 ]; then
+    echo "All webroot attempts failed. Falling back to standalone issuance."
+    # Stop nginx temporarily if it's running so standalone can bind :80
+    if sudo docker ps -q --filter name=isy-healthcare-nginx | grep -q .; then
+      echo "Stopping nginx container to free port 80 for standalone certbot"
+      sudo docker rm -f isy-healthcare-nginx || true
+    fi
+
+    STAGING_FLAG=""
+    if [ "${CERTBOT_STAGING}" = "1" ]; then
+      STAGING_FLAG="--staging"
+    fi
+
+    if ! sudo docker run --rm -p 80:80 -v "$CERTBOT_ETC_VOL":/etc/letsencrypt -v "$CERTBOT_WWW_VOL":/var/www/certbot certbot/certbot certonly $STAGING_FLAG --standalone -d "$DOMAIN" --email "$CERTBOT_EMAIL" --agree-tos --no-eff-email --non-interactive; then
+      echo "Standalone certbot run failed to obtain certificates for $DOMAIN" >&2
+      return 2
+    fi
+    echo "Standalone certbot run succeeded"
+    # restart nginx so it picks up certs (compose will recreate with our config)
+    sudo docker compose up -d --force-recreate --no-deps nginx || true
+  fi
+}
+
+ensure_certs || true
 
 echo "Waiting for application to respond on http://127.0.0.1:${SERVICE_PORT}/ up to ${HEALTH_TIMEOUT}s"
 ELAPSED=0
