@@ -21,7 +21,7 @@ interface Service {
   assignedClinic: {
     _id: string;
     clinicId: string;
-    clinicName: string;
+    name: string;
   };
   // Additional hospital fields
   serviceCode?: string;
@@ -32,8 +32,8 @@ interface Service {
   notes?: string;
 }
 
-// Category color mapping
-const categoryColors: Record<string, { bg: string; text: string }> = {
+// Default category colors
+const defaultCategoryColors: Record<string, { bg: string; text: string }> = {
   Consultation: { bg: "bg-blue-100", text: "text-blue-800" },
   Procedure: { bg: "bg-purple-100", text: "text-purple-800" },
   Laboratory: { bg: "bg-green-100", text: "text-green-800" },
@@ -42,15 +42,21 @@ const categoryColors: Record<string, { bg: string; text: string }> = {
   Other: { bg: "bg-gray-100", text: "text-gray-800" },
 };
 
-const categories = [
-  "All",
-  "Consultation",
-  "Procedure",
-  "Laboratory",
-  "Radiology",
-  "Pharmacy",
-  "Other",
+// Available color options for categories
+const colorOptions = [
+  { name: "Gray", bg: "bg-gray-100", text: "text-gray-800" },
+  { name: "Blue", bg: "bg-blue-100", text: "text-blue-800" },
+  { name: "Green", bg: "bg-green-100", text: "text-green-800" },
+  { name: "Purple", bg: "bg-purple-100", text: "text-purple-800" },
+  { name: "Pink", bg: "bg-pink-100", text: "text-pink-800" },
+  { name: "Orange", bg: "bg-orange-100", text: "text-orange-800" },
+  { name: "Red", bg: "bg-red-100", text: "text-red-800" },
+  { name: "Yellow", bg: "bg-yellow-100", text: "text-yellow-800" },
+  { name: "Indigo", bg: "bg-indigo-100", text: "text-indigo-800" },
+  { name: "Teal", bg: "bg-teal-100", text: "text-teal-800" },
 ];
+
+// Categories will be managed dynamically in component state
 
 export default function PricelistsPage() {
   const { data: session } = useSession();
@@ -74,8 +80,11 @@ export default function PricelistsPage() {
 
   // Collapsible categories state
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(categories.filter((c) => c !== "All"))
+    new Set()
   );
+
+  // Selected service prices for export (serviceId_priceType format)
+  const [selectedPrices, setSelectedPrices] = useState<Set<string>>(new Set());
 
   // Price column visibility
   const [visibleColumns, setVisibleColumns] = useState({
@@ -91,7 +100,28 @@ export default function PricelistsPage() {
     title: "Medical Pricelist",
     subtitle: "Healthcare Services Pricing",
     logo: "",
+    logoFile: null as File | null,
     footer: "© 2025 ISY Healthcare. All rights reserved.",
+  });
+
+  // Category management state
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [customCategories, setCustomCategories] = useState<string[]>([
+    "Consultation",
+    "Procedure",
+    "Laboratory",
+    "Radiology",
+    "Pharmacy",
+    "Other",
+  ]);
+  const [categoryColors, setCategoryColors] = useState<
+    Record<string, { bg: string; text: string }>
+  >({ ...defaultCategoryColors });
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [categoryInput, setCategoryInput] = useState("");
+  const [categoryColorInput, setCategoryColorInput] = useState({
+    bg: "bg-gray-100",
+    text: "text-gray-800",
   });
 
   const [formData, setFormData] = useState({
@@ -104,7 +134,8 @@ export default function PricelistsPage() {
       tourist: 0,
       touristWithInsurance: 0,
     },
-    assignedClinic: "",
+    // default assigned clinic; prefer current UI selection or user's first assigned clinic
+    assignedClinic: selectedClinic || session?.user?.assignedClinics?.[0] || "",
     serviceCode: "",
     unit: "Session",
     estimatedDuration: 30,
@@ -116,12 +147,13 @@ export default function PricelistsPage() {
   const fetchClinics = async () => {
     try {
       const res = await fetch("/api/clinics");
-      const data = await res.json();
+      const result = await res.json();
       if (res.ok) {
-        setClinics(data.clinics || []);
+        const clinicsData = result.data || result.clinics || [];
+        setClinics(clinicsData);
         // Set first clinic as default if user has access to multiple
-        if (data.clinics && data.clinics.length > 0 && !selectedClinic) {
-          setSelectedClinic(data.clinics[0]._id);
+        if (clinicsData.length > 0 && !selectedClinic) {
+          setSelectedClinic(clinicsData[0]._id);
         }
       }
     } catch (error) {
@@ -160,6 +192,14 @@ export default function PricelistsPage() {
       fetchExchangeRates();
     }
   }, [selectedCurrency]);
+
+  // Expand all categories when services load
+  useEffect(() => {
+    if (services.length > 0) {
+      const categories = Array.from(new Set(services.map((s) => s.category)));
+      setExpandedCategories(new Set(categories));
+    }
+  }, [services]);
 
   const fetchServices = async () => {
     try {
@@ -214,7 +254,13 @@ export default function PricelistsPage() {
         ? { ...formData, _id: editingService._id }
         : {
             ...formData,
-            assignedClinic: session?.user?.assignedClinics?.[0] || "",
+            // prefer explicit form value, then currently selected clinic in UI,
+            // then user's first assigned clinic to satisfy server validation
+            assignedClinic:
+              formData.assignedClinic ||
+              selectedClinic ||
+              session?.user?.assignedClinics?.[0] ||
+              "",
           };
 
       const res = await fetch(url, {
@@ -325,7 +371,7 @@ export default function PricelistsPage() {
 
   const toggleAllCategories = (expand: boolean) => {
     if (expand) {
-      setExpandedCategories(new Set(categories.filter((c) => c !== "All")));
+      setExpandedCategories(new Set(customCategories));
     } else {
       setExpandedCategories(new Set());
     }
@@ -333,6 +379,192 @@ export default function PricelistsPage() {
 
   const toggleColumn = (column: keyof typeof visibleColumns) => {
     setVisibleColumns((prev) => ({ ...prev, [column]: !prev[column] }));
+  };
+
+  // Toggle individual service price selection
+  const toggleServicePrice = (serviceId: string, priceType: string) => {
+    const key = `${serviceId}_${priceType}`;
+    const newSelected = new Set(selectedPrices);
+    if (newSelected.has(key)) {
+      newSelected.delete(key);
+    } else {
+      newSelected.add(key);
+    }
+    setSelectedPrices(newSelected);
+  };
+
+  // Check if a service price is selected
+  const isPriceSelected = (serviceId: string, priceType: string) => {
+    return selectedPrices.has(`${serviceId}_${priceType}`);
+  };
+
+  // Toggle all prices of a specific type for a category
+  const toggleCategoryPriceType = (
+    category: string,
+    priceType: string,
+    categoryServices: Service[]
+  ) => {
+    const newSelected = new Set(selectedPrices);
+    // Check if all prices of this type are selected
+    const allSelected = categoryServices.every((service) =>
+      isPriceSelected(service.serviceId, priceType)
+    );
+
+    categoryServices.forEach((service) => {
+      const key = `${service.serviceId}_${priceType}`;
+      if (allSelected) {
+        newSelected.delete(key); // Uncheck all
+      } else {
+        newSelected.add(key); // Check all
+      }
+    });
+    setSelectedPrices(newSelected);
+  };
+
+  // Check if all prices of a type in a category are selected
+  const isCategoryPriceTypeSelected = (
+    category: string,
+    priceType: string,
+    categoryServices: Service[]
+  ) => {
+    return categoryServices.every((service) =>
+      isPriceSelected(service.serviceId, priceType)
+    );
+  };
+
+  // Category Management Functions
+  const handleAddCategory = () => {
+    if (!categoryInput.trim()) {
+      alert("Category name cannot be empty");
+      return;
+    }
+    if (customCategories.includes(categoryInput.trim())) {
+      alert("Category already exists");
+      return;
+    }
+    const newCategory = categoryInput.trim();
+    setCustomCategories([...customCategories, newCategory]);
+    setCategoryColors({
+      ...categoryColors,
+      [newCategory]: categoryColorInput,
+    });
+    setCategoryInput("");
+    setCategoryColorInput({ bg: "bg-gray-100", text: "text-gray-800" });
+  };
+
+  const handleEditCategory = (oldName: string) => {
+    setEditingCategory(oldName);
+    setCategoryInput(oldName);
+    setCategoryColorInput(
+      categoryColors[oldName] || { bg: "bg-gray-100", text: "text-gray-800" }
+    );
+  };
+
+  const handleUpdateCategory = () => {
+    if (!categoryInput.trim()) {
+      alert("Category name cannot be empty");
+      return;
+    }
+    if (
+      editingCategory !== categoryInput &&
+      customCategories.includes(categoryInput.trim())
+    ) {
+      alert("Category already exists");
+      return;
+    }
+
+    const newName = categoryInput.trim();
+
+    // Update category name in the list
+    setCustomCategories(
+      customCategories.map((cat) => (cat === editingCategory ? newName : cat))
+    );
+
+    // Update category colors
+    const newColors = { ...categoryColors };
+    if (editingCategory && editingCategory !== newName) {
+      delete newColors[editingCategory];
+    }
+    newColors[newName] = categoryColorInput;
+    setCategoryColors(newColors);
+
+    // Update services that use this category
+    setServices(
+      services.map((service) =>
+        service.category === editingCategory
+          ? { ...service, category: newName }
+          : service
+      )
+    );
+
+    setEditingCategory(null);
+    setCategoryInput("");
+    setCategoryColorInput({ bg: "bg-gray-100", text: "text-gray-800" });
+  };
+
+  const handleDeleteCategory = (categoryName: string) => {
+    // Check if category is in use
+    const servicesUsingCategory = services.filter(
+      (s) => s.category === categoryName
+    );
+
+    if (servicesUsingCategory.length > 0) {
+      const confirmDelete = confirm(
+        `This category has ${servicesUsingCategory.length} service(s). Delete anyway? Services will be moved to "Other" category.`
+      );
+      if (!confirmDelete) return;
+
+      // Move services to "Other"
+      setServices(
+        services.map((service) =>
+          service.category === categoryName
+            ? { ...service, category: "Other" }
+            : service
+        )
+      );
+    }
+
+    setCustomCategories(customCategories.filter((cat) => cat !== categoryName));
+
+    // Remove from expanded categories if present
+    const newExpanded = new Set(expandedCategories);
+    newExpanded.delete(categoryName);
+    setExpandedCategories(newExpanded);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCategory(null);
+    setCategoryInput("");
+    setCategoryColorInput({ bg: "bg-gray-100", text: "text-gray-800" });
+  };
+
+  // Handle logo file upload
+  const handleLogoUpload = async (file: File) => {
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      alert("Please upload an image file (PNG, JPG, etc.)");
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      alert("File size must be less than 2MB");
+      return;
+    }
+
+    // Convert to base64 for storage
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setExportSettings({
+        ...exportSettings,
+        logo: base64String,
+        logoFile: file,
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   // Group services by category
@@ -352,34 +584,78 @@ export default function PricelistsPage() {
 
       const doc = new jsPDF({ orientation: "landscape" });
 
+      let yOffset = 15;
+
+      // Add logo if provided
+      if (exportSettings.logo) {
+        try {
+          // Determine image format from base64 string
+          let format = "PNG";
+          if (exportSettings.logo.includes("data:image/jpeg")) format = "JPEG";
+          else if (exportSettings.logo.includes("data:image/jpg"))
+            format = "JPEG";
+          else if (exportSettings.logo.includes("data:image/png"))
+            format = "PNG";
+
+          doc.addImage(exportSettings.logo, format, 14, yOffset, 40, 20);
+          yOffset += 25;
+        } catch (error) {
+          console.error("Error adding logo to PDF:", error);
+          alert(
+            "Logo could not be added to PDF. Please try a different image."
+          );
+        }
+      }
+
       // Add title
       doc.setFontSize(18);
-      doc.text(exportSettings.title, 14, 15);
+      doc.text(exportSettings.title, 14, yOffset);
+      yOffset += 7;
 
       // Add subtitle
       doc.setFontSize(12);
-      doc.text(exportSettings.subtitle, 14, 22);
+      doc.text(exportSettings.subtitle, 14, yOffset);
+      yOffset += 6;
 
       // Add clinic and currency info
       const clinicName =
-        clinics.find((c) => c._id === selectedClinic)?.clinicName ||
-        "All Clinics";
+        clinics.find((c) => c._id === selectedClinic)?.name || "All Clinics";
       doc.setFontSize(10);
-      doc.text(`Clinic: ${clinicName} | Currency: ${selectedCurrency}`, 14, 28);
+      doc.text(
+        `Clinic: ${clinicName} | Currency: ${selectedCurrency}`,
+        14,
+        yOffset
+      );
+      yOffset += 7;
 
-      let yOffset = 35;
-
-      // Export each expanded category
+      // Export each expanded category - BUT SKIP categories with no selected services
       Object.entries(groupedServices).forEach(
         ([category, categoryServices]) => {
           if (expandedCategories.has(category)) {
+            // First, filter to get only services with checked prices
+            const servicesWithCheckedPrices = categoryServices.filter(
+              (service) => {
+                return (
+                  isPriceSelected(service.serviceId, "local") ||
+                  isPriceSelected(service.serviceId, "localWithInsurance") ||
+                  isPriceSelected(service.serviceId, "tourist") ||
+                  isPriceSelected(service.serviceId, "touristWithInsurance")
+                );
+              }
+            );
+
+            // SKIP this category if no services have checked prices
+            if (servicesWithCheckedPrices.length === 0) {
+              return;
+            }
+
             // Category header
             doc.setFillColor(240, 240, 240);
             doc.rect(14, yOffset, doc.internal.pageSize.width - 28, 8, "F");
             doc.setFontSize(12);
-            doc.setFont(undefined, "bold");
+            doc.setFont("helvetica", "bold");
             doc.text(
-              `${category} (${categoryServices.length})`,
+              `${category} (${servicesWithCheckedPrices.length})`,
               16,
               yOffset + 5
             );
@@ -395,17 +671,38 @@ export default function PricelistsPage() {
               headers[0].push("Tourist + Ins");
             headers[0].push("Status");
 
-            // Table data
-            const data = categoryServices.map((service) => {
+            // Table data - ONLY include rows where at least one price is checked
+            const data = servicesWithCheckedPrices.map((service) => {
               const row = [service.serviceId, service.serviceName];
-              if (visibleColumns.local)
+              // Only add checked prices
+              if (
+                visibleColumns.local &&
+                isPriceSelected(service.serviceId, "local")
+              )
                 row.push(formatCurrency(service.pricing.local));
-              if (visibleColumns.localWithInsurance)
+              else if (visibleColumns.local) row.push("-");
+
+              if (
+                visibleColumns.localWithInsurance &&
+                isPriceSelected(service.serviceId, "localWithInsurance")
+              )
                 row.push(formatCurrency(service.pricing.localWithInsurance));
-              if (visibleColumns.tourist)
+              else if (visibleColumns.localWithInsurance) row.push("-");
+
+              if (
+                visibleColumns.tourist &&
+                isPriceSelected(service.serviceId, "tourist")
+              )
                 row.push(formatCurrency(service.pricing.tourist));
-              if (visibleColumns.touristWithInsurance)
+              else if (visibleColumns.tourist) row.push("-");
+
+              if (
+                visibleColumns.touristWithInsurance &&
+                isPriceSelected(service.serviceId, "touristWithInsurance")
+              )
                 row.push(formatCurrency(service.pricing.touristWithInsurance));
+              else if (visibleColumns.touristWithInsurance) row.push("-");
+
               row.push(service.isActive ? "Active" : "Inactive");
               return row;
             });
@@ -455,10 +752,27 @@ export default function PricelistsPage() {
 
       const workbook = XLSX.utils.book_new();
 
-      // Export each expanded category as a separate sheet
+      // Export each expanded category as a separate sheet - SKIP empty categories
       Object.entries(groupedServices).forEach(
         ([category, categoryServices]) => {
           if (expandedCategories.has(category)) {
+            // First, filter to get only services with checked prices
+            const servicesWithCheckedPrices = categoryServices.filter(
+              (service) => {
+                return (
+                  isPriceSelected(service.serviceId, "local") ||
+                  isPriceSelected(service.serviceId, "localWithInsurance") ||
+                  isPriceSelected(service.serviceId, "tourist") ||
+                  isPriceSelected(service.serviceId, "touristWithInsurance")
+                );
+              }
+            );
+
+            // SKIP this category if no services have checked prices
+            if (servicesWithCheckedPrices.length === 0) {
+              return;
+            }
+
             const headers = ["Service ID", "Service Name"];
             if (visibleColumns.local) headers.push("Local");
             if (visibleColumns.localWithInsurance)
@@ -468,23 +782,47 @@ export default function PricelistsPage() {
               headers.push("Tourist + Insurance");
             headers.push("Status");
 
-            const data = categoryServices.map((service) => {
+            // Map the filtered services
+            const data = servicesWithCheckedPrices.map((service) => {
               const row: any = {
                 "Service ID": service.serviceId,
                 "Service Name": service.serviceName,
               };
-              if (visibleColumns.local)
+              // Only add checked prices
+              if (
+                visibleColumns.local &&
+                isPriceSelected(service.serviceId, "local")
+              )
                 row["Local"] = convertPrice(service.pricing.local);
-              if (visibleColumns.localWithInsurance)
+              else if (visibleColumns.local) row["Local"] = "-";
+
+              if (
+                visibleColumns.localWithInsurance &&
+                isPriceSelected(service.serviceId, "localWithInsurance")
+              )
                 row["Local + Insurance"] = convertPrice(
                   service.pricing.localWithInsurance
                 );
-              if (visibleColumns.tourist)
+              else if (visibleColumns.localWithInsurance)
+                row["Local + Insurance"] = "-";
+
+              if (
+                visibleColumns.tourist &&
+                isPriceSelected(service.serviceId, "tourist")
+              )
                 row["Tourist"] = convertPrice(service.pricing.tourist);
-              if (visibleColumns.touristWithInsurance)
+              else if (visibleColumns.tourist) row["Tourist"] = "-";
+
+              if (
+                visibleColumns.touristWithInsurance &&
+                isPriceSelected(service.serviceId, "touristWithInsurance")
+              )
                 row["Tourist + Insurance"] = convertPrice(
                   service.pricing.touristWithInsurance
                 );
+              else if (visibleColumns.touristWithInsurance)
+                row["Tourist + Insurance"] = "-";
+
               row["Status"] = service.isActive ? "Active" : "Inactive";
               return row;
             });
@@ -512,7 +850,7 @@ export default function PricelistsPage() {
       );
 
       const clinicName =
-        clinics.find((c) => c._id === selectedClinic)?.clinicName || "All";
+        clinics.find((c) => c._id === selectedClinic)?.name || "All";
       XLSX.writeFile(workbook, `pricelist-${clinicName}-${Date.now()}.xlsx`);
       setShowExportModal(false);
     } catch (error) {
@@ -535,36 +873,40 @@ export default function PricelistsPage() {
         <p className="text-gray-600 mt-2">
           Manage service pricing for all patient categories
         </p>
+
+        {/* Clinic Selector */}
+        {clinics.length > 0 && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Clinic:
+            </label>
+            <select
+              value={selectedClinic}
+              onChange={(e) => setSelectedClinic(e.target.value)}
+              className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              {clinics.map((clinic) => (
+                <option key={clinic._id} value={clinic._id}>
+                  {clinic.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Filters and Actions */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <div className="flex flex-wrap gap-4 items-center justify-between">
           <div className="flex gap-4 flex-1 flex-wrap">
-            {/* Clinic Selector */}
-            {["Admin", "Director"].includes(session.user.role) &&
-              clinics.length > 1 && (
-                <select
-                  value={selectedClinic}
-                  onChange={(e) => setSelectedClinic(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">All Clinics</option>
-                  {clinics.map((clinic) => (
-                    <option key={clinic._id} value={clinic._id}>
-                      {clinic.clinicName}
-                    </option>
-                  ))}
-                </select>
-              )}
-
             {/* Category Filter */}
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             >
-              {categories.map((cat) => (
+              <option value="All">All</option>
+              {customCategories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
@@ -633,52 +975,35 @@ export default function PricelistsPage() {
               Add Service
             </button>
           )}
+
+          {/* Manage Categories Button */}
+          {["Admin" as any, "Director" as any, "Finance" as any].includes(
+            session?.user?.role
+          ) && (
+            <button
+              onClick={() => setShowCategoryModal(true)}
+              className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+                />
+              </svg>
+              Manage Categories
+            </button>
+          )}
         </div>
 
-        {/* Price Column Selection & Category Controls */}
+        {/* Category Controls */}
         <div className="flex flex-wrap gap-4 items-center justify-between mt-4 pt-4 border-t">
-          <div className="flex gap-4 items-center flex-wrap">
-            <span className="text-sm font-medium text-gray-700">
-              Show Columns:
-            </span>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={visibleColumns.local}
-                onChange={() => toggleColumn("local")}
-                className="w-4 h-4 text-blue-600 rounded"
-              />
-              <span className="text-sm text-gray-700">Local</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={visibleColumns.localWithInsurance}
-                onChange={() => toggleColumn("localWithInsurance")}
-                className="w-4 h-4 text-blue-600 rounded"
-              />
-              <span className="text-sm text-gray-700">Local + Ins</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={visibleColumns.tourist}
-                onChange={() => toggleColumn("tourist")}
-                className="w-4 h-4 text-blue-600 rounded"
-              />
-              <span className="text-sm text-gray-700">Tourist</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={visibleColumns.touristWithInsurance}
-                onChange={() => toggleColumn("touristWithInsurance")}
-                className="w-4 h-4 text-blue-600 rounded"
-              />
-              <span className="text-sm text-gray-700">Tourist + Ins</span>
-            </label>
-          </div>
-
           <div className="flex gap-2">
             <button
               onClick={() => toggleAllCategories(true)}
@@ -738,11 +1063,11 @@ export default function PricelistsPage() {
                   className="bg-white rounded-lg shadow overflow-hidden"
                 >
                   {/* Category Header */}
-                  <button
-                    onClick={() => toggleCategory(category)}
-                    className="w-full flex items-center justify-between px-6 py-4 bg-gray-50 hover:bg-gray-100 transition"
-                  >
-                    <div className="flex items-center gap-3">
+                  <div className="w-full flex items-center justify-between px-6 py-4 bg-gray-50">
+                    <button
+                      onClick={() => toggleCategory(category)}
+                      className="flex items-center gap-3 hover:opacity-80 transition"
+                    >
                       <svg
                         className={`w-5 h-5 text-gray-600 transition-transform ${
                           isExpanded ? "rotate-90" : ""
@@ -767,8 +1092,8 @@ export default function PricelistsPage() {
                         ({categoryServices.length} service
                         {categoryServices.length !== 1 ? "s" : ""})
                       </span>
-                    </div>
-                  </button>
+                    </button>
+                  </div>
 
                   {/* Category Content */}
                   {isExpanded && (
@@ -783,23 +1108,99 @@ export default function PricelistsPage() {
                               Service Name
                             </th>
                             {visibleColumns.local && (
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                                Local
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isCategoryPriceTypeSelected(
+                                      category,
+                                      "local",
+                                      categoryServices
+                                    )}
+                                    onChange={() =>
+                                      toggleCategoryPriceType(
+                                        category,
+                                        "local",
+                                        categoryServices
+                                      )
+                                    }
+                                    className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span>Local</span>
+                                </div>
                               </th>
                             )}
                             {visibleColumns.localWithInsurance && (
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                                Local + Ins
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isCategoryPriceTypeSelected(
+                                      category,
+                                      "localWithInsurance",
+                                      categoryServices
+                                    )}
+                                    onChange={() =>
+                                      toggleCategoryPriceType(
+                                        category,
+                                        "localWithInsurance",
+                                        categoryServices
+                                      )
+                                    }
+                                    className="w-4 h-4 text-green-600 rounded focus:ring-2 focus:ring-green-500"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span>Local + Ins</span>
+                                </div>
                               </th>
                             )}
                             {visibleColumns.tourist && (
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                                Tourist
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isCategoryPriceTypeSelected(
+                                      category,
+                                      "tourist",
+                                      categoryServices
+                                    )}
+                                    onChange={() =>
+                                      toggleCategoryPriceType(
+                                        category,
+                                        "tourist",
+                                        categoryServices
+                                      )
+                                    }
+                                    className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span>Tourist</span>
+                                </div>
                               </th>
                             )}
                             {visibleColumns.touristWithInsurance && (
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                                Tourist + Ins
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isCategoryPriceTypeSelected(
+                                      category,
+                                      "touristWithInsurance",
+                                      categoryServices
+                                    )}
+                                    onChange={() =>
+                                      toggleCategoryPriceType(
+                                        category,
+                                        "touristWithInsurance",
+                                        categoryServices
+                                      )
+                                    }
+                                    className="w-4 h-4 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span>Tourist + Ins</span>
+                                </div>
                               </th>
                             )}
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -845,27 +1246,103 @@ export default function PricelistsPage() {
                                 </div>
                               </td>
                               {visibleColumns.local && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                  {formatCurrency(service.pricing.local)}
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isPriceSelected(
+                                        service.serviceId,
+                                        "local"
+                                      )}
+                                      onChange={() =>
+                                        toggleServicePrice(
+                                          service.serviceId,
+                                          "local"
+                                        )
+                                      }
+                                      className="w-4 h-4 text-blue-600 rounded"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <span className="font-medium">
+                                      {formatCurrency(service.pricing.local)}
+                                    </span>
+                                  </div>
                                 </td>
                               )}
                               {visibleColumns.localWithInsurance && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                  {formatCurrency(
-                                    service.pricing.localWithInsurance
-                                  )}
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isPriceSelected(
+                                        service.serviceId,
+                                        "localWithInsurance"
+                                      )}
+                                      onChange={() =>
+                                        toggleServicePrice(
+                                          service.serviceId,
+                                          "localWithInsurance"
+                                        )
+                                      }
+                                      className="w-4 h-4 text-green-600 rounded"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <span className="font-medium">
+                                      {formatCurrency(
+                                        service.pricing.localWithInsurance
+                                      )}
+                                    </span>
+                                  </div>
                                 </td>
                               )}
                               {visibleColumns.tourist && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                  {formatCurrency(service.pricing.tourist)}
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isPriceSelected(
+                                        service.serviceId,
+                                        "tourist"
+                                      )}
+                                      onChange={() =>
+                                        toggleServicePrice(
+                                          service.serviceId,
+                                          "tourist"
+                                        )
+                                      }
+                                      className="w-4 h-4 text-purple-600 rounded"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <span className="font-medium">
+                                      {formatCurrency(service.pricing.tourist)}
+                                    </span>
+                                  </div>
                                 </td>
                               )}
                               {visibleColumns.touristWithInsurance && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                  {formatCurrency(
-                                    service.pricing.touristWithInsurance
-                                  )}
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isPriceSelected(
+                                        service.serviceId,
+                                        "touristWithInsurance"
+                                      )}
+                                      onChange={() =>
+                                        toggleServicePrice(
+                                          service.serviceId,
+                                          "touristWithInsurance"
+                                        )
+                                      }
+                                      className="w-4 h-4 text-orange-600 rounded"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <span className="font-medium">
+                                      {formatCurrency(
+                                        service.pricing.touristWithInsurance
+                                      )}
+                                    </span>
+                                  </div>
                                 </td>
                               )}
                               <td className="px-6 py-4 whitespace-nowrap">
@@ -986,13 +1463,11 @@ export default function PricelistsPage() {
                       }
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
-                      {categories
-                        .filter((c) => c !== "All")
-                        .map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
-                        ))}
+                      {customCategories.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -1261,6 +1736,197 @@ export default function PricelistsPage() {
         </div>
       )}
 
+      {/* Category Management Modal */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">Manage Categories</h2>
+              <button
+                onClick={() => {
+                  setShowCategoryModal(false);
+                  handleCancelEdit();
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Add/Edit Category Form */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                {editingCategory ? "Edit Category" : "Add New Category"}
+              </label>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={categoryInput}
+                  onChange={(e) => setCategoryInput(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      editingCategory
+                        ? handleUpdateCategory()
+                        : handleAddCategory();
+                    }
+                  }}
+                  placeholder="Enter category name"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+
+                {/* Color Picker */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Color:
+                  </label>
+                  <div className="flex gap-2 flex-wrap">
+                    {colorOptions.map((color) => (
+                      <button
+                        key={color.name}
+                        onClick={() => setCategoryColorInput(color)}
+                        className={`px-3 py-2 rounded-lg border-2 ${color.bg} ${
+                          color.text
+                        } ${
+                          categoryColorInput.bg === color.bg
+                            ? "border-gray-800 ring-2 ring-gray-800"
+                            : "border-transparent"
+                        } hover:border-gray-400 transition`}
+                      >
+                        {color.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {editingCategory ? (
+                    <>
+                      <button
+                        onClick={handleUpdateCategory}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                      >
+                        Update
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={handleAddCategory}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      Add
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Categories List */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold mb-3">
+                Current Categories ({customCategories.length})
+              </h3>
+              {customCategories.map((category) => {
+                const serviceCount = services.filter(
+                  (s) => s.category === category
+                ).length;
+                const categoryColor =
+                  categoryColors[category as keyof typeof categoryColors] ||
+                  categoryColors.Other;
+
+                return (
+                  <div
+                    key={category}
+                    className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`px-3 py-1 text-sm font-medium rounded-full ${categoryColor.bg} ${categoryColor.text}`}
+                      >
+                        {category}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {serviceCount} service{serviceCount !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEditCategory(category)}
+                        className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                        title="Edit category"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCategory(category)}
+                        className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
+                        title="Delete category"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Close Button */}
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowCategoryModal(false);
+                  handleCancelEdit();
+                }}
+                className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Export Modal */}
       {showExportModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1326,20 +1992,41 @@ export default function PricelistsPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Logo URL (optional)
+                  Logo Upload (optional)
                 </label>
-                <input
-                  type="text"
-                  value={exportSettings.logo}
-                  onChange={(e) =>
-                    setExportSettings({
-                      ...exportSettings,
-                      logo: e.target.value,
-                    })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://example.com/logo.png"
-                />
+                <div className="space-y-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleLogoUpload(file);
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                  {exportSettings.logoFile && (
+                    <div className="flex items-center gap-2 text-sm text-green-600">
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
+                      {exportSettings.logoFile.name} (
+                      {(exportSettings.logoFile.size / 1024).toFixed(1)} KB)
+                    </div>
+                  )}
+                  {exportSettings.logo && !exportSettings.logoFile && (
+                    <div className="text-sm text-gray-500">Logo loaded</div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -1369,7 +2056,7 @@ export default function PricelistsPage() {
                   • Only checked price columns will be included
                   <br />• Currency: {selectedCurrency}
                   <br />• Clinic:{" "}
-                  {clinics.find((c) => c._id === selectedClinic)?.clinicName ||
+                  {clinics.find((c) => c._id === selectedClinic)?.name ||
                     "All Clinics"}
                 </p>
               </div>

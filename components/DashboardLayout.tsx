@@ -202,10 +202,11 @@ export default function DashboardLayout({
           ))}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-4">
+        <div className="absolute bottom-0 left-0 p-4">
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="flex items-center w-full px-4 py-3 hover:bg-blue-800 transition rounded"
+            className="flex items-center px-4 py-3 hover:bg-blue-800 transition rounded"
+            aria-label="Logout"
           >
             <svg
               className="w-6 h-6"

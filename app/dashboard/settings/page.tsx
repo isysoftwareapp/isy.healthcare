@@ -21,6 +21,11 @@ export default function SettingsPage() {
   const [smsNotifications, setSmsNotifications] = useState(false);
   const [pushNotifications, setPushNotifications] = useState(true);
 
+  // Regional & Financial preferences
+  const [currency, setCurrency] = useState("IDR");
+  const [timezone, setTimezone] = useState("Asia/Jakarta");
+  const [country, setCountry] = useState("Indonesia");
+
   // Password change
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -81,6 +86,36 @@ export default function SettingsPage() {
         throw new Error("Failed to update notification preferences");
 
       setSuccess("Notification preferences updated successfully");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to update preferences"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegionalUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch("/api/users/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currency,
+          timezone,
+          country,
+        }),
+      });
+
+      if (!response.ok)
+        throw new Error("Failed to update regional preferences");
+
+      setSuccess("Regional & financial settings updated successfully");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to update preferences"
@@ -235,6 +270,79 @@ export default function SettingsPage() {
         </form>
       </div>
 
+      {/* Regional & Financial Settings */}
+      <div className="bg-white shadow-md rounded-lg p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4">
+          Regional & Financial Settings
+        </h2>
+        <form onSubmit={handleRegionalUpdate}>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Currency</label>
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900"
+            >
+              <option value="IDR">IDR (Indonesian Rupiah)</option>
+              <option value="USD">USD (US Dollar)</option>
+              <option value="EUR">EUR (Euro)</option>
+              <option value="AUD">AUD (Australian Dollar)</option>
+            </select>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Timezone</label>
+            <select
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900"
+            >
+              <option value="Asia/Jakarta">
+                Asia/Jakarta (WIB - Western Indonesia)
+              </option>
+              <option value="Asia/Makassar">
+                Asia/Makassar (WITA - Central Indonesia)
+              </option>
+              <option value="Asia/Jayapura">
+                Asia/Jayapura (WIT - Eastern Indonesia)
+              </option>
+              <option value="America/New_York">
+                America/New_York (EST/EDT)
+              </option>
+              <option value="America/Los_Angeles">
+                America/Los_Angeles (PST/PDT)
+              </option>
+              <option value="Europe/London">Europe/London (GMT/BST)</option>
+              <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+              <option value="Australia/Sydney">
+                Australia/Sydney (AEST/AEDT)
+              </option>
+            </select>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Country</label>
+            <select
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900"
+            >
+              <option value="Indonesia">Indonesia</option>
+              <option value="United States">United States</option>
+              <option value="United Kingdom">United Kingdom</option>
+              <option value="Australia">Australia</option>
+              <option value="Singapore">Singapore</option>
+              <option value="Malaysia">Malaysia</option>
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? "Saving..." : "Save Settings"}
+          </button>
+        </form>
+      </div>
+
       {/* Password Change */}
       <div className="bg-white shadow-md rounded-lg p-6">
         <h2 className="text-xl font-semibold mb-4">Change Password</h2>
@@ -287,4 +395,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

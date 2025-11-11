@@ -37,6 +37,9 @@ export interface IUser extends Document {
     language: string; // Multi-language support
     theme: "light" | "dark"; // Dark/Light mode
     defaultClinic?: mongoose.Types.ObjectId; // Preferred clinic for login
+    currency?: "IDR" | "USD" | "EUR" | "AUD"; // Financial currency preference
+    timezone?: string; // User's timezone
+    country?: string; // User's country
   };
 
   // Security
@@ -116,6 +119,19 @@ const UserSchema = new Schema<IUser>(
       defaultClinic: {
         type: Schema.Types.ObjectId,
         ref: "Clinic",
+      },
+      currency: {
+        type: String,
+        enum: ["IDR", "USD", "EUR", "AUD"],
+        default: "IDR",
+      },
+      timezone: {
+        type: String,
+        default: "Asia/Jakarta",
+      },
+      country: {
+        type: String,
+        default: "Indonesia",
       },
     },
     lastLogin: Date,

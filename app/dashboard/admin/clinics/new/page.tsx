@@ -23,9 +23,9 @@ export default function NewClinicPage() {
       street: "",
       city: "",
       state: "",
-      country: "USA",
+      country: "Indonesia",
       postalCode: "",
-      timezone: "America/New_York",
+      timezone: "Asia/Jakarta",
     },
     operationalSettings: {
       appointmentSlotDuration: 30,
@@ -33,8 +33,8 @@ export default function NewClinicPage() {
       defaultLanguage: "en",
     },
     financialSettings: {
-      primaryCurrency: "USD",
-      acceptedCurrencies: ["USD"],
+      primaryCurrency: "IDR",
+      acceptedCurrencies: ["IDR"],
     },
     isActive: true,
   });
@@ -322,14 +322,9 @@ export default function NewClinicPage() {
               <input
                 type="text"
                 required
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                readOnly
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
                 value={formData.address.country}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    address: { ...formData.address, country: e.target.value },
-                  })
-                }
               />
             </div>
 
@@ -368,13 +363,15 @@ export default function NewClinicPage() {
                   })
                 }
               >
-                <option value="America/New_York">Eastern Time</option>
-                <option value="America/Chicago">Central Time</option>
-                <option value="America/Denver">Mountain Time</option>
-                <option value="America/Los_Angeles">Pacific Time</option>
-                <option value="America/Phoenix">Arizona</option>
-                <option value="America/Anchorage">Alaska</option>
-                <option value="Pacific/Honolulu">Hawaii</option>
+                <option value="Asia/Jakarta">
+                  WIB - Jakarta, Surabaya (GMT+7)
+                </option>
+                <option value="Asia/Makassar">
+                  WITA - Makassar, Bali (GMT+8)
+                </option>
+                <option value="Asia/Jayapura">
+                  WIT - Jayapura, Papua (GMT+9)
+                </option>
               </select>
             </div>
           </div>
@@ -482,11 +479,10 @@ export default function NewClinicPage() {
                   })
                 }
               >
+                <option value="IDR">IDR - Indonesian Rupiah</option>
                 <option value="USD">USD - US Dollar</option>
                 <option value="EUR">EUR - Euro</option>
-                <option value="GBP">GBP - British Pound</option>
-                <option value="CAD">CAD - Canadian Dollar</option>
-                <option value="THB">THB - Thai Baht</option>
+                <option value="AUD">AUD - Australian Dollar</option>
               </select>
             </div>
 

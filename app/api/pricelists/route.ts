@@ -437,30 +437,155 @@ export async function GET(req: NextRequest) {
           clinicName: "Main Clinic",
         },
       },
+      // Branch Clinic Services
+      {
+        serviceId: "SVC024",
+        serviceName: "Konsultasi Dokter Umum",
+        category: "Consultation",
+        description: "General practitioner consultation - Branch",
+        pricing: {
+          local: 120000,
+          localWithInsurance: 170000,
+          tourist: 250000,
+          touristWithInsurance: 300000,
+        },
+        isActive: true,
+        assignedClinic: {
+          _id: "2",
+          clinicId: "CLN002",
+          clinicName: "Branch Clinic",
+        },
+      },
+      {
+        serviceId: "SVC025",
+        serviceName: "Pemeriksaan Fisik Lengkap",
+        category: "Checkup",
+        description: "Complete physical examination - Branch",
+        pricing: {
+          local: 250000,
+          localWithInsurance: 350000,
+          tourist: 500000,
+          touristWithInsurance: 600000,
+        },
+        isActive: true,
+        assignedClinic: {
+          _id: "2",
+          clinicId: "CLN002",
+          clinicName: "Branch Clinic",
+        },
+      },
+      {
+        serviceId: "SVC026",
+        serviceName: "Tes Darah Lengkap",
+        category: "Laboratory",
+        description: "Complete blood count - Branch",
+        pricing: {
+          local: 100000,
+          localWithInsurance: 140000,
+          tourist: 200000,
+          touristWithInsurance: 240000,
+        },
+        isActive: true,
+        assignedClinic: {
+          _id: "2",
+          clinicId: "CLN002",
+          clinicName: "Branch Clinic",
+        },
+      },
+      {
+        serviceId: "SVC027",
+        serviceName: "X-Ray Dada",
+        category: "Radiology",
+        description: "Chest X-ray - Branch",
+        pricing: {
+          local: 200000,
+          localWithInsurance: 280000,
+          tourist: 400000,
+          touristWithInsurance: 480000,
+        },
+        isActive: true,
+        assignedClinic: {
+          _id: "2",
+          clinicId: "CLN002",
+          clinicName: "Branch Clinic",
+        },
+      },
+      {
+        serviceId: "SVC028",
+        serviceName: "Pembersihan Gigi",
+        category: "Dental",
+        description: "Teeth cleaning - Branch",
+        pricing: {
+          local: 300000,
+          localWithInsurance: 420000,
+          tourist: 600000,
+          touristWithInsurance: 720000,
+        },
+        isActive: true,
+        assignedClinic: {
+          _id: "2",
+          clinicId: "CLN002",
+          clinicName: "Branch Clinic",
+        },
+      },
     ];
 
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
     const search = searchParams.get("search");
+    const clinicId = searchParams.get("clinicId");
 
-    // Filter dummy data
-    let filteredServices = dummyServices;
+    // Authorization: Users can only see their assigned clinic's pricelists
+    // Admin and Director can see all clinics
+    const userRole = session.user.role;
+    const userPrimaryClinic = session.user.primaryClinic;
 
+    if (
+      clinicId &&
+      userRole !== "Admin" &&
+      userRole !== "Director" &&
+      clinicId !== userPrimaryClinic
+    ) {
+      return NextResponse.json(
+        { error: "You can only view your assigned clinic's pricelists" },
+        { status: 403 }
+      );
+    }
+
+    // Connect to database
+    await dbConnect();
+
+    // Build query filters
+    const query: any = {};
+
+    // Filter by clinic if specified
+    if (clinicId) {
+      query.assignedClinic = clinicId;
+    } else if (userRole !== "Admin" && userRole !== "Director") {
+      // Non-admin users can only see their clinic's services
+      query.assignedClinic = userPrimaryClinic;
+    }
+
+    // Filter by category
     if (category && category !== "All") {
-      filteredServices = filteredServices.filter(
-        (s) => s.category === category
-      );
+      query.category = category;
     }
 
+    // Filter by search term
     if (search) {
-      filteredServices = filteredServices.filter(
-        (s) =>
-          s.serviceName.toLowerCase().includes(search.toLowerCase()) ||
-          s.serviceId.toLowerCase().includes(search.toLowerCase())
-      );
+      query.$or = [
+        { serviceName: { $regex: search, $options: "i" } },
+        { serviceId: { $regex: search, $options: "i" } },
+      ];
     }
 
-    return NextResponse.json({ services: filteredServices }, { status: 200 });
+    // Fetch services from database with populated clinic data
+    const services = await Service.find(query)
+      .populate("assignedClinic", "clinicId name")
+      .sort({ category: 1, serviceName: 1 })
+      .lean();
+
+    return NextResponse.json({ services }, { status: 200 });
   } catch (error: any) {
     console.error("Error fetching services:", error);
     return NextResponse.json(

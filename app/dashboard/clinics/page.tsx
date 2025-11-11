@@ -8,7 +8,17 @@ import Link from "next/link";
 interface Clinic {
   _id: string;
   name: string;
-  address: string;
+  // address can be a formatted string (legacy) or an object with details
+  address:
+    | string
+    | {
+        street?: string;
+        city?: string;
+        state?: string;
+        country?: string;
+        postalCode?: string;
+        timezone?: string;
+      };
   phone: string;
   email: string;
   status: "active" | "inactive";
@@ -102,24 +112,33 @@ export default function ClinicsPage() {
           <tbody className="bg-white divide-y divide-gray-200">
             {clinics.length === 0 ? (
               <tr>
-                <td
-                  colSpan={6}
-                  className="px-6 py-4 text-center text-gray-500"
-                >
+                <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
                   No clinics found. Create your first clinic to get started.
                 </td>
               </tr>
             ) : (
               clinics.map((clinic) => (
-                <tr
-                  key={clinic._id}
-                  className="hover:bg-gray-50"
-                >
+                <tr key={clinic._id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {clinic.name}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {clinic.address}
+                    {typeof clinic.address === "string" ? (
+                      clinic.address
+                    ) : (
+                      <div>
+                        {clinic.address?.street && (
+                          <div>{clinic.address.street}</div>
+                        )}
+                        <div>
+                          {clinic.address?.city}
+                          {clinic.address?.city && clinic.address?.state
+                            ? ", "
+                            : ""}
+                          {clinic.address?.state} {clinic.address?.postalCode}
+                        </div>
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {clinic.phone}
@@ -161,4 +180,3 @@ export default function ClinicsPage() {
     </div>
   );
 }
-
