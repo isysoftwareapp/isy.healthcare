@@ -100,98 +100,93 @@ volumes:
 
 Set-Content -Path "docker-compose.dev.yml" -Value $devComposeContent
 
-Write-Host "`nBuilding new image (down-first: stop old container, then rebuild)" -ForegroundColor Yellow
+# Check if image exists, build only if needed
+$imageExists = docker images -q isy-healthcare-dev-app 2>$null
+$shouldBuild = $false
 
-# Ensure local Next.js build is fresh so the container image contains an up-to-date
-# production `.next` (this compiles all app router pages). This helps avoid stale
-# cached pages causing 404s for newly added routes.
-Write-Host "\nCleaning local build artifacts and running local npm build..." -ForegroundColor Yellow
-if (Test-Path ".next") {
-  Write-Output "Removing existing .next directory..."
-  Remove-Item -Recurse -Force ".next"
-}
-
-# Run local Next.js build to produce a fresh .next before building the docker image.
-# Use the PowerShell call operator which is reliable for npm on Windows.
-Write-Output "Running: npm run build"
-& npm run build
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "Local 'npm run build' failed. Aborting dev build." -ForegroundColor Red
-  exit 1
-}
-
-# Detect old container (if any) and stop it so we rebuild from a clean state
-$oldContainerInfo = docker ps -a --filter "name=isy-healthcare-dev" --format "{{.ID}} {{.Image}} {{.Status}}" 2>$null
-$oldContainerId = $null
-$oldContainerImage = $null
-if ($oldContainerInfo -and $oldContainerInfo.Trim() -ne "") {
-  $parts = $oldContainerInfo -split '\s+'
-  $oldContainerId = $parts[0]
-  $oldContainerImage = $parts[1]
-  Write-Output "Found existing container isy-healthcare-dev (id: $oldContainerId, image: $oldContainerImage). Stopping it now..."
-  docker stop $oldContainerId | Out-Null
+if (-not $imageExists) {
+    Write-Host "`nNo existing dev image found. Building for first time..." -ForegroundColor Yellow
+    $shouldBuild = $true
 } else {
-  Write-Output "No existing isy-healthcare-dev container found. Proceeding to build." 
+    # Check if Dockerfile or package.json changed (indicating dependency changes)
+    Write-Host "`nChecking if rebuild is needed..." -ForegroundColor Yellow
+    $dockerfileHash = (Get-FileHash "Dockerfile" -Algorithm MD5 -ErrorAction SilentlyContinue).Hash
+    $packageHash = (Get-FileHash "package.json" -Algorithm MD5 -ErrorAction SilentlyContinue).Hash
+    $hashFile = ".dev-build-hash"
+    
+    $needsRebuild = $false
+    if (Test-Path $hashFile) {
+        $savedHash = Get-Content $hashFile -Raw
+        $currentHash = "$dockerfileHash|$packageHash"
+        if ($savedHash -ne $currentHash) {
+            Write-Host "Dockerfile or package.json changed. Rebuild required." -ForegroundColor Yellow
+            $needsRebuild = $true
+        }
+    } else {
+        $needsRebuild = $true
+    }
+    
+    if ($needsRebuild) {
+        $shouldBuild = $true
+        "$dockerfileHash|$packageHash" | Set-Content $hashFile
+    } else {
+        Write-Host "No dependency changes detected. Skipping build (using volume mounts for code)." -ForegroundColor Green
+    }
 }
 
-# Build with BuildKit enabled first, then fallback to no-cache if necessary
-$buildSucceeded = $false
-Write-Output "Attempt 1: docker compose build (BuildKit)"
-$env:COMPOSE_DOCKER_CLI_BUILD = '1'
-$env:DOCKER_BUILDKIT = '1'
-& docker compose -f docker-compose.dev.yml build
-$exitCode = $LASTEXITCODE
-Remove-Item Env:COMPOSE_DOCKER_CLI_BUILD -ErrorAction SilentlyContinue
-Remove-Item Env:DOCKER_BUILDKIT -ErrorAction SilentlyContinue
-if ($exitCode -eq 0) { $buildSucceeded = $true }
-
-if (-not $buildSucceeded) {
-  Write-Output "Attempt 1 failed. Pruning builder and retrying with no-cache..."
-  docker builder prune -af | Out-Null
-  Write-Output "Attempt 2: docker compose build --no-cache"
-  & docker compose -f docker-compose.dev.yml build --no-cache
-  $exitCode = $LASTEXITCODE
-  if ($exitCode -eq 0) { $buildSucceeded = $true }
+if ($shouldBuild) {
+    Write-Host "`nBuilding Docker image..." -ForegroundColor Yellow
+    
+    # Stop existing containers
+    docker compose -f docker-compose.dev.yml down 2>$null | Out-Null
+    
+    # Build with BuildKit
+    $env:COMPOSE_DOCKER_CLI_BUILD = '1'
+    $env:DOCKER_BUILDKIT = '1'
+    & docker compose -f docker-compose.dev.yml build
+    $exitCode = $LASTEXITCODE
+    Remove-Item Env:COMPOSE_DOCKER_CLI_BUILD -ErrorAction SilentlyContinue
+    Remove-Item Env:DOCKER_BUILDKIT -ErrorAction SilentlyContinue
+    
+    if ($exitCode -ne 0) {
+        Write-Host "Build failed. Please check the error messages above." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Build completed successfully!" -ForegroundColor Green
 }
 
-if (-not $buildSucceeded) {
-  Write-Host "Build failed after retries. Attempting to restart previous container (if any) and aborting." -ForegroundColor Red
-  if ($oldContainerId) {
-    Write-Output "Restarting previous container $oldContainerId..."
-    docker start $oldContainerId | Out-Null
-  }
-  exit 1
-}
+# Start services (this is fast since code is mounted via volumes)
+Write-Host "`nStarting services..." -ForegroundColor Yellow
+& docker compose -f docker-compose.dev.yml up -d
 
-# Build succeeded — bring up the app service from the freshly built image
-Write-Output "Build succeeded. Starting app service using docker compose..."
-& docker compose -f docker-compose.dev.yml up -d app
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "Failed to start app via docker compose. Attempting to restart previous container (if any) and aborting." -ForegroundColor Red
-  if ($oldContainerId) { docker start $oldContainerId | Out-Null }
-  exit 1
+    Write-Host "Failed to start services." -ForegroundColor Red
+    exit 1
 }
 
-# Health-check the new app on port 3000
+# Quick health check
+Write-Host "`nWaiting for app to be ready..." -ForegroundColor Yellow
 $healthOk = $false
 for ($i = 0; $i -lt 30; $i++) {
-  try {
-    $resp = Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 5
-    if ($resp.StatusCode -eq 200) { $healthOk = $true; break }
-  } catch { }
-  Start-Sleep -Seconds 2
+    try {
+        $resp = Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue
+        if ($resp.StatusCode -eq 200) { 
+            $healthOk = $true
+            break 
+        }
+    } catch { }
+    Start-Sleep -Seconds 2
 }
 
 if ($healthOk) {
-  Write-Host "New app is healthy and running on http://localhost:3000" -ForegroundColor Green
-  Write-Output "To view logs: docker compose -f docker-compose.dev.yml logs -f app"
+    Write-Host "`n=== Development server is ready! ===" -ForegroundColor Green
+    Write-Host "URL: http://localhost:3000" -ForegroundColor Cyan
+    Write-Host "Database: mongodb://localhost:27017" -ForegroundColor Cyan
+    Write-Host "`nYour code changes will be reflected automatically (volume mounts)." -ForegroundColor Yellow
+    Write-Host "To view logs: docker compose -f docker-compose.dev.yml logs -f app" -ForegroundColor Gray
+    Write-Host "To stop: docker compose -f docker-compose.dev.yml down" -ForegroundColor Gray
 } else {
-  Write-Host "New app failed healthcheck. See logs and rolling back to previous container (if available)." -ForegroundColor Red
-  docker compose -f docker-compose.dev.yml logs --tail=200 app
-  if ($oldContainerId) {
-    Write-Output "Starting previous container $oldContainerId..."
-    docker start $oldContainerId | Out-Null
-    Write-Host "Previous container restarted (id: $oldContainerId)." -ForegroundColor Yellow
-  }
-  exit 1
+    Write-Host "`nApp failed to start. Checking logs..." -ForegroundColor Red
+    docker compose -f docker-compose.dev.yml logs --tail=100 app
+    exit 1
 }

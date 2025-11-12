@@ -671,7 +671,15 @@ export async function PUT(req: NextRequest) {
     await dbConnect();
 
     const body = await req.json();
-    const { _id, serviceName, category, description, pricing, isActive } = body;
+    const {
+      _id,
+      serviceName,
+      category,
+      description,
+      pricing,
+      isActive,
+      insuranceProvider,
+    } = body;
 
     if (!_id) {
       return NextResponse.json(
@@ -688,6 +696,7 @@ export async function PUT(req: NextRequest) {
         description,
         pricing,
         isActive,
+        insuranceProvider,
       },
       { new: true }
     );

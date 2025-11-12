@@ -8,6 +8,7 @@ interface Pricing {
   localWithInsurance: number;
   tourist: number;
   touristWithInsurance: number;
+  insurance: number; // Always 0
 }
 
 interface Service {
@@ -23,6 +24,7 @@ interface Service {
     clinicId: string;
     name: string;
   };
+  insuranceProvider?: string; // New field for insurance provider dropdown
   // Additional hospital fields
   serviceCode?: string;
   unit?: string;
@@ -56,6 +58,21 @@ const colorOptions = [
   { name: "Teal", bg: "bg-teal-100", text: "text-teal-800" },
 ];
 
+// Insurance provider options
+const insuranceProviders = [
+  "none",
+  "BPJS Kesehatan",
+  "Prudential",
+  "Allianz",
+  "AXA Mandiri",
+  "Manulife",
+  "Cifna",
+  "Sinarmas",
+  "BRI Life",
+  "BNI Life",
+  "Mandiri Inhealth",
+];
+
 // Categories will be managed dynamically in component state
 
 export default function PricelistsPage() {
@@ -78,11 +95,6 @@ export default function PricelistsPage() {
   });
   const [hideEmptyServices, setHideEmptyServices] = useState(false);
 
-  // Collapsible categories state
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set()
-  );
-
   // Selected service prices for export (serviceId_priceType format)
   const [selectedPrices, setSelectedPrices] = useState<Set<string>>(new Set());
 
@@ -92,7 +104,16 @@ export default function PricelistsPage() {
     localWithInsurance: true,
     tourist: true,
     touristWithInsurance: true,
+    insurance: true,
   });
+
+  // Insurance provider column title
+  const [insuranceColumnTitle, setInsuranceColumnTitle] = useState("none");
+
+  // Copy/paste functionality
+  const [copiedServiceNames, setCopiedServiceNames] = useState<
+    Record<string, string>
+  >({});
 
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
@@ -133,9 +154,11 @@ export default function PricelistsPage() {
       localWithInsurance: 0,
       tourist: 0,
       touristWithInsurance: 0,
+      insurance: 0, // Always 0
     },
     // default assigned clinic; prefer current UI selection or user's first assigned clinic
     assignedClinic: selectedClinic || session?.user?.assignedClinics?.[0] || "",
+    insuranceProvider: "Rp 0", // New field
     serviceCode: "",
     unit: "Session",
     estimatedDuration: 30,
@@ -192,14 +215,6 @@ export default function PricelistsPage() {
       fetchExchangeRates();
     }
   }, [selectedCurrency]);
-
-  // Expand all categories when services load
-  useEffect(() => {
-    if (services.length > 0) {
-      const categories = Array.from(new Set(services.map((s) => s.category)));
-      setExpandedCategories(new Set(categories));
-    }
-  }, [services]);
 
   const fetchServices = async () => {
     try {
@@ -290,8 +305,12 @@ export default function PricelistsPage() {
       serviceName: service.serviceName,
       category: service.category,
       description: service.description || "",
-      pricing: service.pricing,
+      pricing: {
+        ...service.pricing,
+        insurance: service.pricing.insurance || 0, // Ensure insurance field exists
+      },
       assignedClinic: service.assignedClinic._id,
+      insuranceProvider: service.insuranceProvider || "none",
       serviceCode: service.serviceCode || "",
       unit: service.unit || "Session",
       estimatedDuration: service.estimatedDuration || 30,
@@ -330,8 +349,10 @@ export default function PricelistsPage() {
         localWithInsurance: 0,
         tourist: 0,
         touristWithInsurance: 0,
+        insurance: 0,
       },
       assignedClinic: "",
+      insuranceProvider: "none",
       serviceCode: "",
       unit: "Session",
       estimatedDuration: 30,
@@ -359,24 +380,6 @@ export default function PricelistsPage() {
     }).format(convertedAmount);
   };
 
-  const toggleCategory = (category: string) => {
-    const newExpanded = new Set(expandedCategories);
-    if (newExpanded.has(category)) {
-      newExpanded.delete(category);
-    } else {
-      newExpanded.add(category);
-    }
-    setExpandedCategories(newExpanded);
-  };
-
-  const toggleAllCategories = (expand: boolean) => {
-    if (expand) {
-      setExpandedCategories(new Set(customCategories));
-    } else {
-      setExpandedCategories(new Set());
-    }
-  };
-
   const toggleColumn = (column: keyof typeof visibleColumns) => {
     setVisibleColumns((prev) => ({ ...prev, [column]: !prev[column] }));
   };
@@ -398,38 +401,160 @@ export default function PricelistsPage() {
     return selectedPrices.has(`${serviceId}_${priceType}`);
   };
 
-  // Toggle all prices of a specific type for a category
-  const toggleCategoryPriceType = (
-    category: string,
-    priceType: string,
-    categoryServices: Service[]
-  ) => {
-    const newSelected = new Set(selectedPrices);
-    // Check if all prices of this type are selected
-    const allSelected = categoryServices.every((service) =>
-      isPriceSelected(service.serviceId, priceType)
-    );
+  // Copy service prices for paste functionality
+  const copyCheckedServiceNames = () => {
+    const copiedPrices: Record<string, string> = {};
 
-    categoryServices.forEach((service) => {
-      const key = `${service.serviceId}_${priceType}`;
-      if (allSelected) {
-        newSelected.delete(key); // Uncheck all
-      } else {
-        newSelected.add(key); // Check all
-      }
+    services.forEach((service) => {
+      const priceTypes: (keyof Pricing)[] = [
+        "local",
+        "localWithInsurance",
+        "tourist",
+        "touristWithInsurance",
+      ];
+
+      priceTypes.forEach((priceType) => {
+        if (isPriceSelected(service.serviceId, priceType)) {
+          copiedPrices[service.serviceName] = formatCurrency(
+            service.pricing[priceType]
+          );
+        }
+      });
     });
-    setSelectedPrices(newSelected);
+
+    setCopiedServiceNames(copiedPrices);
+    // Also save to localStorage for persistence
+    localStorage.setItem("copiedServiceNames", JSON.stringify(copiedPrices));
   };
 
-  // Check if all prices of a type in a category are selected
-  const isCategoryPriceTypeSelected = (
-    category: string,
-    priceType: string,
-    categoryServices: Service[]
+  // Paste service prices to insurance provider
+  const pasteServiceNames = async (targetServiceId?: string) => {
+    if (!Object.keys(copiedServiceNames).length) return;
+
+    if (targetServiceId) {
+      // Paste to specific service (when called from individual paste button)
+      const service = services.find((s) => s.serviceId === targetServiceId);
+      if (!service) return;
+
+      const price = copiedServiceNames[service.serviceName];
+      if (!price) return;
+
+      try {
+        const res = await fetch("/api/pricelists", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            _id: service._id,
+            insuranceProvider: price,
+          }),
+        });
+
+        if (res.ok) {
+          // Update local state
+          const updatedServices = services.map((s) =>
+            s.serviceId === targetServiceId
+              ? { ...s, insuranceProvider: price }
+              : s
+          );
+          setServices(updatedServices);
+        } else {
+          console.error("Failed to update insurance provider");
+        }
+      } catch (error) {
+        console.error("Error updating insurance provider:", error);
+      }
+    } else {
+      // Paste to all checked services in insurance provider column
+      const checkedServices = services.filter((service) =>
+        isPriceSelected(service.serviceId, "insurance")
+      );
+
+      for (const service of checkedServices) {
+        const price = copiedServiceNames[service.serviceName];
+        if (!price) continue;
+
+        try {
+          const res = await fetch("/api/pricelists", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              _id: service._id,
+              insuranceProvider: price,
+            }),
+          });
+
+          if (res.ok) {
+            // Update local state for this service
+            setServices((prevServices) =>
+              prevServices.map((s) =>
+                s.serviceId === service.serviceId
+                  ? { ...s, insuranceProvider: price }
+                  : s
+              )
+            );
+          } else {
+            console.error(
+              "Failed to update insurance provider for service:",
+              service.serviceId
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Error updating insurance provider for service:",
+            service.serviceId,
+            error
+          );
+        }
+      }
+    }
+  };
+
+  // Load copied service names from localStorage on component mount
+  useEffect(() => {
+    const savedServiceNames = localStorage.getItem("copiedServiceNames");
+    if (savedServiceNames) {
+      try {
+        setCopiedServiceNames(JSON.parse(savedServiceNames));
+      } catch (error) {
+        console.error("Error parsing saved service names:", error);
+      }
+    }
+  }, []);
+
+  // Update service price directly from table
+  const updateServicePrice = async (
+    serviceId: string,
+    priceType: keyof Pricing,
+    newPrice: number
   ) => {
-    return categoryServices.every((service) =>
-      isPriceSelected(service.serviceId, priceType)
-    );
+    try {
+      const service = services.find((s) => s.serviceId === serviceId);
+      if (!service) return;
+
+      const updatedPricing = { ...service.pricing, [priceType]: newPrice };
+
+      const res = await fetch("/api/pricelists", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          _id: service._id,
+          pricing: updatedPricing,
+        }),
+      });
+
+      if (res.ok) {
+        // Update local state
+        setServices((prevServices) =>
+          prevServices.map((s) =>
+            s.serviceId === serviceId ? { ...s, pricing: updatedPricing } : s
+          )
+        );
+      } else {
+        console.error("Failed to update price");
+      }
+    } catch (error) {
+      console.error("Error updating price:", error);
+    }
   };
 
   // Category Management Functions
@@ -525,11 +650,6 @@ export default function PricelistsPage() {
     }
 
     setCustomCategories(customCategories.filter((cat) => cat !== categoryName));
-
-    // Remove from expanded categories if present
-    const newExpanded = new Set(expandedCategories);
-    newExpanded.delete(categoryName);
-    setExpandedCategories(newExpanded);
   };
 
   const handleCancelEdit = () => {
@@ -566,15 +686,6 @@ export default function PricelistsPage() {
     };
     reader.readAsDataURL(file);
   };
-
-  // Group services by category
-  const groupedServices = services.reduce((acc, service) => {
-    if (!acc[service.category]) {
-      acc[service.category] = [];
-    }
-    acc[service.category].push(service);
-    return acc;
-  }, {} as Record<string, Service[]>);
 
   const exportToPDF = async () => {
     try {
@@ -628,99 +739,110 @@ export default function PricelistsPage() {
       );
       yOffset += 7;
 
-      // Export each expanded category - BUT SKIP categories with no selected services
-      Object.entries(groupedServices).forEach(
-        ([category, categoryServices]) => {
-          if (expandedCategories.has(category)) {
-            // First, filter to get only services with checked prices
-            const servicesWithCheckedPrices = categoryServices.filter(
-              (service) => {
-                return (
-                  isPriceSelected(service.serviceId, "local") ||
-                  isPriceSelected(service.serviceId, "localWithInsurance") ||
-                  isPriceSelected(service.serviceId, "tourist") ||
-                  isPriceSelected(service.serviceId, "touristWithInsurance")
-                );
-              }
-            );
+      // Export all services with checked prices
+      const servicesWithCheckedPrices = services.filter((service) => {
+        return (
+          isPriceSelected(service.serviceId, "local") ||
+          isPriceSelected(service.serviceId, "localWithInsurance") ||
+          isPriceSelected(service.serviceId, "tourist") ||
+          isPriceSelected(service.serviceId, "touristWithInsurance") ||
+          isPriceSelected(service.serviceId, "insurance")
+        );
+      });
 
-            // SKIP this category if no services have checked prices
-            if (servicesWithCheckedPrices.length === 0) {
-              return;
-            }
+      // SKIP if no services have checked prices
+      if (servicesWithCheckedPrices.length === 0) {
+        doc.setFontSize(12);
+        doc.text("No services selected for export", 14, yOffset);
+        return;
+      }
 
-            // Category header
-            doc.setFillColor(240, 240, 240);
-            doc.rect(14, yOffset, doc.internal.pageSize.width - 28, 8, "F");
-            doc.setFontSize(12);
-            doc.setFont("helvetica", "bold");
-            doc.text(
-              `${category} (${servicesWithCheckedPrices.length})`,
-              16,
-              yOffset + 5
-            );
-            yOffset += 10;
+      // Table headers
+      const headers = [["Service Name", "Category"]];
 
-            // Table headers
-            const headers = [["Service ID", "Service Name"]];
-            if (visibleColumns.local) headers[0].push("Local");
-            if (visibleColumns.localWithInsurance)
-              headers[0].push("Local + Ins");
-            if (visibleColumns.tourist) headers[0].push("Tourist");
-            if (visibleColumns.touristWithInsurance)
-              headers[0].push("Tourist + Ins");
-            headers[0].push("Status");
-
-            // Table data - ONLY include rows where at least one price is checked
-            const data = servicesWithCheckedPrices.map((service) => {
-              const row = [service.serviceId, service.serviceName];
-              // Only add checked prices
-              if (
-                visibleColumns.local &&
-                isPriceSelected(service.serviceId, "local")
-              )
-                row.push(formatCurrency(service.pricing.local));
-              else if (visibleColumns.local) row.push("-");
-
-              if (
-                visibleColumns.localWithInsurance &&
-                isPriceSelected(service.serviceId, "localWithInsurance")
-              )
-                row.push(formatCurrency(service.pricing.localWithInsurance));
-              else if (visibleColumns.localWithInsurance) row.push("-");
-
-              if (
-                visibleColumns.tourist &&
-                isPriceSelected(service.serviceId, "tourist")
-              )
-                row.push(formatCurrency(service.pricing.tourist));
-              else if (visibleColumns.tourist) row.push("-");
-
-              if (
-                visibleColumns.touristWithInsurance &&
-                isPriceSelected(service.serviceId, "touristWithInsurance")
-              )
-                row.push(formatCurrency(service.pricing.touristWithInsurance));
-              else if (visibleColumns.touristWithInsurance) row.push("-");
-
-              row.push(service.isActive ? "Active" : "Inactive");
-              return row;
-            });
-
-            autoTable(doc, {
-              head: headers,
-              body: data,
-              startY: yOffset,
-              theme: "grid",
-              styles: { fontSize: 8 },
-              headStyles: { fillColor: [66, 139, 202] },
-              margin: { left: 14, right: 14 },
-            });
-
-            yOffset = (doc as any).lastAutoTable.finalY + 10;
-          }
-        }
+      // Only include columns that have at least one checked item
+      const hasLocalChecked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "local")
       );
+      const hasLocalWithInsuranceChecked = servicesWithCheckedPrices.some(
+        (service) => isPriceSelected(service.serviceId, "localWithInsurance")
+      );
+      const hasTouristChecked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "tourist")
+      );
+      const hasTouristWithInsuranceChecked = servicesWithCheckedPrices.some(
+        (service) => isPriceSelected(service.serviceId, "touristWithInsurance")
+      );
+      const hasInsuranceChecked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "insurance")
+      );
+
+      if (visibleColumns.local && hasLocalChecked) headers[0].push("Local");
+      if (visibleColumns.localWithInsurance && hasLocalWithInsuranceChecked)
+        headers[0].push("Local + Ins");
+      if (visibleColumns.tourist && hasTouristChecked)
+        headers[0].push("Tourist");
+      if (visibleColumns.touristWithInsurance && hasTouristWithInsuranceChecked)
+        headers[0].push("Tourist + Ins");
+      if (visibleColumns.insurance && hasInsuranceChecked)
+        headers[0].push(
+          insuranceColumnTitle === "none"
+            ? "Insurance Provider"
+            : insuranceColumnTitle
+        );
+
+      // Table data - ONLY include rows where at least one price is checked
+      const data = servicesWithCheckedPrices.map((service) => {
+        const row = [service.serviceName, service.category];
+        // Only add checked prices for columns that are included in headers
+        if (
+          visibleColumns.local &&
+          hasLocalChecked &&
+          isPriceSelected(service.serviceId, "local")
+        )
+          row.push(formatCurrency(service.pricing.local));
+
+        if (
+          visibleColumns.localWithInsurance &&
+          hasLocalWithInsuranceChecked &&
+          isPriceSelected(service.serviceId, "localWithInsurance")
+        )
+          row.push(formatCurrency(service.pricing.localWithInsurance));
+
+        if (
+          visibleColumns.tourist &&
+          hasTouristChecked &&
+          isPriceSelected(service.serviceId, "tourist")
+        )
+          row.push(formatCurrency(service.pricing.tourist));
+
+        if (
+          visibleColumns.touristWithInsurance &&
+          hasTouristWithInsuranceChecked &&
+          isPriceSelected(service.serviceId, "touristWithInsurance")
+        )
+          row.push(formatCurrency(service.pricing.touristWithInsurance));
+
+        if (
+          visibleColumns.insurance &&
+          hasInsuranceChecked &&
+          isPriceSelected(service.serviceId, "insurance")
+        )
+          row.push(service.insuranceProvider || "Rp 0");
+
+        row.push(service.isActive ? "Active" : "Inactive");
+        return row;
+      });
+
+      autoTable(doc, {
+        head: headers,
+        body: data,
+        startY: yOffset,
+        theme: "grid",
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [66, 139, 202] },
+        margin: { left: 14, right: 14 },
+      });
 
       // Add footer
       const pageCount = (doc as any).getNumberOfPages();
@@ -752,103 +874,122 @@ export default function PricelistsPage() {
 
       const workbook = XLSX.utils.book_new();
 
-      // Export each expanded category as a separate sheet - SKIP empty categories
-      Object.entries(groupedServices).forEach(
-        ([category, categoryServices]) => {
-          if (expandedCategories.has(category)) {
-            // First, filter to get only services with checked prices
-            const servicesWithCheckedPrices = categoryServices.filter(
-              (service) => {
-                return (
-                  isPriceSelected(service.serviceId, "local") ||
-                  isPriceSelected(service.serviceId, "localWithInsurance") ||
-                  isPriceSelected(service.serviceId, "tourist") ||
-                  isPriceSelected(service.serviceId, "touristWithInsurance")
-                );
-              }
-            );
+      // Export all services with checked prices
+      const servicesWithCheckedPrices = services.filter((service) => {
+        return (
+          isPriceSelected(service.serviceId, "local") ||
+          isPriceSelected(service.serviceId, "localWithInsurance") ||
+          isPriceSelected(service.serviceId, "tourist") ||
+          isPriceSelected(service.serviceId, "touristWithInsurance") ||
+          isPriceSelected(service.serviceId, "insurance")
+        );
+      });
 
-            // SKIP this category if no services have checked prices
-            if (servicesWithCheckedPrices.length === 0) {
-              return;
-            }
+      // SKIP if no services have checked prices
+      if (servicesWithCheckedPrices.length === 0) {
+        alert("No services selected for export");
+        return;
+      }
 
-            const headers = ["Service ID", "Service Name"];
-            if (visibleColumns.local) headers.push("Local");
-            if (visibleColumns.localWithInsurance)
-              headers.push("Local + Insurance");
-            if (visibleColumns.tourist) headers.push("Tourist");
-            if (visibleColumns.touristWithInsurance)
-              headers.push("Tourist + Insurance");
-            headers.push("Status");
+      const headers = ["Service Name", "Category"];
 
-            // Map the filtered services
-            const data = servicesWithCheckedPrices.map((service) => {
-              const row: any = {
-                "Service ID": service.serviceId,
-                "Service Name": service.serviceName,
-              };
-              // Only add checked prices
-              if (
-                visibleColumns.local &&
-                isPriceSelected(service.serviceId, "local")
-              )
-                row["Local"] = convertPrice(service.pricing.local);
-              else if (visibleColumns.local) row["Local"] = "-";
-
-              if (
-                visibleColumns.localWithInsurance &&
-                isPriceSelected(service.serviceId, "localWithInsurance")
-              )
-                row["Local + Insurance"] = convertPrice(
-                  service.pricing.localWithInsurance
-                );
-              else if (visibleColumns.localWithInsurance)
-                row["Local + Insurance"] = "-";
-
-              if (
-                visibleColumns.tourist &&
-                isPriceSelected(service.serviceId, "tourist")
-              )
-                row["Tourist"] = convertPrice(service.pricing.tourist);
-              else if (visibleColumns.tourist) row["Tourist"] = "-";
-
-              if (
-                visibleColumns.touristWithInsurance &&
-                isPriceSelected(service.serviceId, "touristWithInsurance")
-              )
-                row["Tourist + Insurance"] = convertPrice(
-                  service.pricing.touristWithInsurance
-                );
-              else if (visibleColumns.touristWithInsurance)
-                row["Tourist + Insurance"] = "-";
-
-              row["Status"] = service.isActive ? "Active" : "Inactive";
-              return row;
-            });
-
-            const worksheet = XLSX.utils.json_to_sheet(data);
-
-            // Auto-fit column widths
-            const maxWidth = 50;
-            const colWidths = headers.map((header) => {
-              const maxLen = Math.max(
-                header.length,
-                ...data.map((row) => String(row[header] || "").length)
-              );
-              return { wch: Math.min(maxLen + 2, maxWidth) };
-            });
-            worksheet["!cols"] = colWidths;
-
-            // Safe sheet name (Excel limits to 31 chars, no special chars)
-            const sheetName = category
-              .substring(0, 31)
-              .replace(/[:\\/?*\[\]]/g, "");
-            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-          }
-        }
+      // Only include columns that have at least one checked item
+      const hasLocalChecked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "local")
+      );
+      const hasLocalWithInsuranceChecked = servicesWithCheckedPrices.some(
+        (service) => isPriceSelected(service.serviceId, "localWithInsurance")
+      );
+      const hasTouristChecked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "tourist")
+      );
+      const hasTouristWithInsuranceChecked = servicesWithCheckedPrices.some(
+        (service) => isPriceSelected(service.serviceId, "touristWithInsurance")
+      );
+      const hasInsuranceChecked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "insurance")
       );
 
+      if (visibleColumns.local && hasLocalChecked) headers.push("Local");
+      if (visibleColumns.localWithInsurance && hasLocalWithInsuranceChecked)
+        headers.push("Local + Insurance");
+      if (visibleColumns.tourist && hasTouristChecked) headers.push("Tourist");
+      if (visibleColumns.touristWithInsurance && hasTouristWithInsuranceChecked)
+        headers.push("Tourist + Insurance");
+      if (visibleColumns.insurance && hasInsuranceChecked)
+        headers.push(
+          insuranceColumnTitle === "none"
+            ? "Insurance Provider"
+            : insuranceColumnTitle
+        );
+
+      // Map the filtered services
+      const data = servicesWithCheckedPrices.map((service) => {
+        const row: any = {
+          "Service Name": service.serviceName,
+          Category: service.category,
+        };
+        // Only add checked prices for columns that are included in headers
+        if (
+          visibleColumns.local &&
+          hasLocalChecked &&
+          isPriceSelected(service.serviceId, "local")
+        )
+          row["Local"] = convertPrice(service.pricing.local);
+
+        if (
+          visibleColumns.localWithInsurance &&
+          hasLocalWithInsuranceChecked &&
+          isPriceSelected(service.serviceId, "localWithInsurance")
+        )
+          row["Local + Insurance"] = convertPrice(
+            service.pricing.localWithInsurance
+          );
+
+        if (
+          visibleColumns.tourist &&
+          hasTouristChecked &&
+          isPriceSelected(service.serviceId, "tourist")
+        )
+          row["Tourist"] = convertPrice(service.pricing.tourist);
+
+        if (
+          visibleColumns.touristWithInsurance &&
+          hasTouristWithInsuranceChecked &&
+          isPriceSelected(service.serviceId, "touristWithInsurance")
+        )
+          row["Tourist + Insurance"] = convertPrice(
+            service.pricing.touristWithInsurance
+          );
+
+        if (
+          visibleColumns.insurance &&
+          hasInsuranceChecked &&
+          isPriceSelected(service.serviceId, "insurance")
+        )
+          row[
+            insuranceColumnTitle === "none"
+              ? "Insurance Provider"
+              : insuranceColumnTitle
+          ] = service.insuranceProvider || "Rp 0";
+
+        return row;
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+
+      // Auto-fit column widths
+      const maxWidth = 50;
+      const colWidths = headers.map((header) => {
+        const maxLen = Math.max(
+          header.length,
+          ...data.map((row) => String(row[header] || "").length)
+        );
+        return { wch: Math.min(maxLen + 2, maxWidth) };
+      });
+      worksheet["!cols"] = colWidths;
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, "All Services");
       const clinicName =
         clinics.find((c) => c._id === selectedClinic)?.name || "All";
       XLSX.writeFile(workbook, `pricelist-${clinicName}-${Date.now()}.xlsx`);
@@ -1006,18 +1147,6 @@ export default function PricelistsPage() {
         <div className="flex flex-wrap gap-4 items-center justify-between mt-4 pt-4 border-t">
           <div className="flex gap-2">
             <button
-              onClick={() => toggleAllCategories(true)}
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-            >
-              Expand All
-            </button>
-            <button
-              onClick={() => toggleAllCategories(false)}
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-            >
-              Collapse All
-            </button>
-            <button
               onClick={() => setShowExportModal(true)}
               className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
             >
@@ -1036,336 +1165,484 @@ export default function PricelistsPage() {
               </svg>
               Export
             </button>
+
+            {/* Copy Button */}
+            <button
+              onClick={copyCheckedServiceNames}
+              disabled={selectedPrices.size === 0}
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Copy service names of checked prices"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+              </svg>
+              Copy
+            </button>
+
+            {/* Paste Button */}
+            <button
+              onClick={() => pasteServiceNames()}
+              disabled={Object.keys(copiedServiceNames).length === 0}
+              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Paste service names to matching insurance provider fields"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
+              </svg>
+              Paste
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Services by Category (Collapsible) */}
-      <div className="space-y-4">
-        {loading ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-            Loading...
-          </div>
-        ) : services.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+      {/* Services Table */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="px-6 py-4 bg-gray-50 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">All Services</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            {services.length} services found
+          </p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Service Name
+                </th>
+                {visibleColumns.local && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={services.every((service) =>
+                          isPriceSelected(service.serviceId, "local")
+                        )}
+                        onChange={() => {
+                          const allSelected = services.every((service) =>
+                            isPriceSelected(service.serviceId, "local")
+                          );
+                          const newSelected = new Set(selectedPrices);
+                          services.forEach((service) => {
+                            const key = `${service.serviceId}_local`;
+                            if (allSelected) {
+                              newSelected.delete(key);
+                            } else {
+                              newSelected.add(key);
+                            }
+                          });
+                          setSelectedPrices(newSelected);
+                        }}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span>Local</span>
+                    </div>
+                  </th>
+                )}
+                {visibleColumns.localWithInsurance && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={services.every((service) =>
+                          isPriceSelected(
+                            service.serviceId,
+                            "localWithInsurance"
+                          )
+                        )}
+                        onChange={() => {
+                          const allSelected = services.every((service) =>
+                            isPriceSelected(
+                              service.serviceId,
+                              "localWithInsurance"
+                            )
+                          );
+                          const newSelected = new Set(selectedPrices);
+                          services.forEach((service) => {
+                            const key = `${service.serviceId}_localWithInsurance`;
+                            if (allSelected) {
+                              newSelected.delete(key);
+                            } else {
+                              newSelected.add(key);
+                            }
+                          });
+                          setSelectedPrices(newSelected);
+                        }}
+                        className="w-4 h-4 text-green-600 rounded focus:ring-2 focus:ring-green-500"
+                      />
+                      <span>Local + Ins</span>
+                    </div>
+                  </th>
+                )}
+                {visibleColumns.tourist && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={services.every((service) =>
+                          isPriceSelected(service.serviceId, "tourist")
+                        )}
+                        onChange={() => {
+                          const allSelected = services.every((service) =>
+                            isPriceSelected(service.serviceId, "tourist")
+                          );
+                          const newSelected = new Set(selectedPrices);
+                          services.forEach((service) => {
+                            const key = `${service.serviceId}_tourist`;
+                            if (allSelected) {
+                              newSelected.delete(key);
+                            } else {
+                              newSelected.add(key);
+                            }
+                          });
+                          setSelectedPrices(newSelected);
+                        }}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                      />
+                      <span>Tourist</span>
+                    </div>
+                  </th>
+                )}
+                {visibleColumns.touristWithInsurance && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={services.every((service) =>
+                          isPriceSelected(
+                            service.serviceId,
+                            "touristWithInsurance"
+                          )
+                        )}
+                        onChange={() => {
+                          const allSelected = services.every((service) =>
+                            isPriceSelected(
+                              service.serviceId,
+                              "touristWithInsurance"
+                            )
+                          );
+                          const newSelected = new Set(selectedPrices);
+                          services.forEach((service) => {
+                            const key = `${service.serviceId}_touristWithInsurance`;
+                            if (allSelected) {
+                              newSelected.delete(key);
+                            } else {
+                              newSelected.add(key);
+                            }
+                          });
+                          setSelectedPrices(newSelected);
+                        }}
+                        className="w-4 h-4 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
+                      />
+                      <span>Tourist + Ins</span>
+                    </div>
+                  </th>
+                )}
+                {visibleColumns.insurance && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={services.every((service) =>
+                          isPriceSelected(service.serviceId, "insurance")
+                        )}
+                        onChange={() => {
+                          const allSelected = services.every((service) =>
+                            isPriceSelected(service.serviceId, "insurance")
+                          );
+                          const newSelected = new Set(selectedPrices);
+                          services.forEach((service) => {
+                            const key = `${service.serviceId}_insurance`;
+                            if (allSelected) {
+                              newSelected.delete(key);
+                            } else {
+                              newSelected.add(key);
+                            }
+                          });
+                          setSelectedPrices(newSelected);
+                        }}
+                        className="w-4 h-4 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
+                      />
+                      <select
+                        value={insuranceColumnTitle}
+                        onChange={(e) =>
+                          setInsuranceColumnTitle(e.target.value)
+                        }
+                        className="text-xs font-medium text-gray-500 uppercase tracking-wider bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer"
+                      >
+                        {insuranceProviders.map((provider) => (
+                          <option key={provider} value={provider}>
+                            {provider === "none"
+                              ? "Insurance Provider"
+                              : provider}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {services.map((service) => (
+                <tr
+                  key={service._id}
+                  onClick={() =>
+                    [
+                      "Admin" as any,
+                      "Director" as any,
+                      "Finance" as any,
+                    ].includes(session?.user?.role) && handleEdit(service)
+                  }
+                  className={`hover:bg-gray-50 transition-colors ${
+                    [
+                      "Admin" as any,
+                      "Director" as any,
+                      "Finance" as any,
+                    ].includes(session?.user?.role)
+                      ? "cursor-pointer"
+                      : ""
+                  }`}
+                >
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    <div>
+                      <div className="font-medium">{service.serviceName}</div>
+                      {service.description && (
+                        <div className="text-xs text-gray-500">
+                          {service.description}
+                        </div>
+                      )}
+                      <div className="text-xs text-blue-600 mt-1">
+                        {service.category}
+                      </div>
+                    </div>
+                  </td>
+                  {visibleColumns.local && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isPriceSelected(service.serviceId, "local")}
+                          onChange={() =>
+                            toggleServicePrice(service.serviceId, "local")
+                          }
+                          className="w-4 h-4 text-blue-600 rounded"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <input
+                          type="text"
+                          value={formatCurrency(service.pricing.local)}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.replace(
+                              /[^\d]/g,
+                              ""
+                            );
+                            updateServicePrice(
+                              service.serviceId,
+                              "local",
+                              parseInt(rawValue) || 0
+                            );
+                          }}
+                          className="w-24 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.localWithInsurance && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isPriceSelected(
+                            service.serviceId,
+                            "localWithInsurance"
+                          )}
+                          onChange={() =>
+                            toggleServicePrice(
+                              service.serviceId,
+                              "localWithInsurance"
+                            )
+                          }
+                          className="w-4 h-4 text-green-600 rounded"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <input
+                          type="text"
+                          value={formatCurrency(
+                            service.pricing.localWithInsurance
+                          )}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.replace(
+                              /[^\d]/g,
+                              ""
+                            );
+                            updateServicePrice(
+                              service.serviceId,
+                              "localWithInsurance",
+                              parseInt(rawValue) || 0
+                            );
+                          }}
+                          className="w-24 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.tourist && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isPriceSelected(
+                            service.serviceId,
+                            "tourist"
+                          )}
+                          onChange={() =>
+                            toggleServicePrice(service.serviceId, "tourist")
+                          }
+                          className="w-4 h-4 text-purple-600 rounded"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <input
+                          type="text"
+                          value={formatCurrency(service.pricing.tourist)}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.replace(
+                              /[^\d]/g,
+                              ""
+                            );
+                            updateServicePrice(
+                              service.serviceId,
+                              "tourist",
+                              parseInt(rawValue) || 0
+                            );
+                          }}
+                          className="w-24 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.touristWithInsurance && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isPriceSelected(
+                            service.serviceId,
+                            "touristWithInsurance"
+                          )}
+                          onChange={() =>
+                            toggleServicePrice(
+                              service.serviceId,
+                              "touristWithInsurance"
+                            )
+                          }
+                          className="w-4 h-4 text-orange-600 rounded"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <input
+                          type="text"
+                          value={formatCurrency(
+                            service.pricing.touristWithInsurance
+                          )}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.replace(
+                              /[^\d]/g,
+                              ""
+                            );
+                            updateServicePrice(
+                              service.serviceId,
+                              "touristWithInsurance",
+                              parseInt(rawValue) || 0
+                            );
+                          }}
+                          className="w-24 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.insurance && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isPriceSelected(
+                            service.serviceId,
+                            "insurance"
+                          )}
+                          onChange={() =>
+                            toggleServicePrice(service.serviceId, "insurance")
+                          }
+                          className="w-4 h-4 text-orange-600 rounded"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={service.insuranceProvider || "Rp 0"}
+                            onChange={(e) => {
+                              // Update service insurance provider
+                              const updatedService = {
+                                ...service,
+                                insuranceProvider: e.target.value,
+                              };
+                              setServices((prev) =>
+                                prev.map((s) =>
+                                  s.serviceId === service.serviceId
+                                    ? updatedService
+                                    : s
+                                )
+                              );
+                            }}
+                            className="w-32 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                            onClick={(e) => e.stopPropagation()}
+                            list={`insurance-options-${service.serviceId}`}
+                          />
+                          <datalist
+                            id={`insurance-options-${service.serviceId}`}
+                          >
+                            {insuranceProviders.map((provider) => (
+                              <option key={provider} value={provider} />
+                            ))}
+                          </datalist>
+                        </div>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {services.length === 0 && (
+          <div className="px-6 py-8 text-center text-gray-500">
             No services found
           </div>
-        ) : (
-          Object.entries(groupedServices).map(
-            ([category, categoryServices]) => {
-              const isExpanded = expandedCategories.has(category);
-              const categoryColor =
-                categoryColors[category] || categoryColors.Other;
-
-              return (
-                <div
-                  key={category}
-                  className="bg-white rounded-lg shadow overflow-hidden"
-                >
-                  {/* Category Header */}
-                  <div className="w-full flex items-center justify-between px-6 py-4 bg-gray-50">
-                    <button
-                      onClick={() => toggleCategory(category)}
-                      className="flex items-center gap-3 hover:opacity-80 transition"
-                    >
-                      <svg
-                        className={`w-5 h-5 text-gray-600 transition-transform ${
-                          isExpanded ? "rotate-90" : ""
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 5l7 7-7 7"
-                        />
-                      </svg>
-                      <span
-                        className={`px-3 py-1 text-sm font-medium rounded-full ${categoryColor.bg} ${categoryColor.text}`}
-                      >
-                        {category}
-                      </span>
-                      <span className="text-sm text-gray-600">
-                        ({categoryServices.length} service
-                        {categoryServices.length !== 1 ? "s" : ""})
-                      </span>
-                    </button>
-                  </div>
-
-                  {/* Category Content */}
-                  {isExpanded && (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                              Service ID
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                              Service Name
-                            </th>
-                            {visibleColumns.local && (
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={isCategoryPriceTypeSelected(
-                                      category,
-                                      "local",
-                                      categoryServices
-                                    )}
-                                    onChange={() =>
-                                      toggleCategoryPriceType(
-                                        category,
-                                        "local",
-                                        categoryServices
-                                      )
-                                    }
-                                    className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                  <span>Local</span>
-                                </div>
-                              </th>
-                            )}
-                            {visibleColumns.localWithInsurance && (
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={isCategoryPriceTypeSelected(
-                                      category,
-                                      "localWithInsurance",
-                                      categoryServices
-                                    )}
-                                    onChange={() =>
-                                      toggleCategoryPriceType(
-                                        category,
-                                        "localWithInsurance",
-                                        categoryServices
-                                      )
-                                    }
-                                    className="w-4 h-4 text-green-600 rounded focus:ring-2 focus:ring-green-500"
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                  <span>Local + Ins</span>
-                                </div>
-                              </th>
-                            )}
-                            {visibleColumns.tourist && (
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={isCategoryPriceTypeSelected(
-                                      category,
-                                      "tourist",
-                                      categoryServices
-                                    )}
-                                    onChange={() =>
-                                      toggleCategoryPriceType(
-                                        category,
-                                        "tourist",
-                                        categoryServices
-                                      )
-                                    }
-                                    className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                  <span>Tourist</span>
-                                </div>
-                              </th>
-                            )}
-                            {visibleColumns.touristWithInsurance && (
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={isCategoryPriceTypeSelected(
-                                      category,
-                                      "touristWithInsurance",
-                                      categoryServices
-                                    )}
-                                    onChange={() =>
-                                      toggleCategoryPriceType(
-                                        category,
-                                        "touristWithInsurance",
-                                        categoryServices
-                                      )
-                                    }
-                                    className="w-4 h-4 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                  <span>Tourist + Ins</span>
-                                </div>
-                              </th>
-                            )}
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                              Status
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {categoryServices.map((service) => (
-                            <tr
-                              key={service._id}
-                              onClick={() =>
-                                [
-                                  "Admin" as any,
-                                  "Director" as any,
-                                  "Finance" as any,
-                                ].includes(session?.user?.role) &&
-                                handleEdit(service)
-                              }
-                              className={`hover:bg-gray-50 transition-colors ${
-                                [
-                                  "Admin" as any,
-                                  "Director" as any,
-                                  "Finance" as any,
-                                ].includes(session?.user?.role)
-                                  ? "cursor-pointer"
-                                  : ""
-                              }`}
-                            >
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                {service.serviceId}
-                              </td>
-                              <td className="px-6 py-4 text-sm text-gray-900">
-                                <div>
-                                  <div className="font-medium">
-                                    {service.serviceName}
-                                  </div>
-                                  {service.description && (
-                                    <div className="text-xs text-gray-500">
-                                      {service.description}
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                              {visibleColumns.local && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={isPriceSelected(
-                                        service.serviceId,
-                                        "local"
-                                      )}
-                                      onChange={() =>
-                                        toggleServicePrice(
-                                          service.serviceId,
-                                          "local"
-                                        )
-                                      }
-                                      className="w-4 h-4 text-blue-600 rounded"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <span className="font-medium">
-                                      {formatCurrency(service.pricing.local)}
-                                    </span>
-                                  </div>
-                                </td>
-                              )}
-                              {visibleColumns.localWithInsurance && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={isPriceSelected(
-                                        service.serviceId,
-                                        "localWithInsurance"
-                                      )}
-                                      onChange={() =>
-                                        toggleServicePrice(
-                                          service.serviceId,
-                                          "localWithInsurance"
-                                        )
-                                      }
-                                      className="w-4 h-4 text-green-600 rounded"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <span className="font-medium">
-                                      {formatCurrency(
-                                        service.pricing.localWithInsurance
-                                      )}
-                                    </span>
-                                  </div>
-                                </td>
-                              )}
-                              {visibleColumns.tourist && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={isPriceSelected(
-                                        service.serviceId,
-                                        "tourist"
-                                      )}
-                                      onChange={() =>
-                                        toggleServicePrice(
-                                          service.serviceId,
-                                          "tourist"
-                                        )
-                                      }
-                                      className="w-4 h-4 text-purple-600 rounded"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <span className="font-medium">
-                                      {formatCurrency(service.pricing.tourist)}
-                                    </span>
-                                  </div>
-                                </td>
-                              )}
-                              {visibleColumns.touristWithInsurance && (
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={isPriceSelected(
-                                        service.serviceId,
-                                        "touristWithInsurance"
-                                      )}
-                                      onChange={() =>
-                                        toggleServicePrice(
-                                          service.serviceId,
-                                          "touristWithInsurance"
-                                        )
-                                      }
-                                      className="w-4 h-4 text-orange-600 rounded"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <span className="font-medium">
-                                      {formatCurrency(
-                                        service.pricing.touristWithInsurance
-                                      )}
-                                    </span>
-                                  </div>
-                                </td>
-                              )}
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <span
-                                  className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                    service.isActive
-                                      ? "bg-green-100 text-green-800"
-                                      : "bg-red-100 text-red-800"
-                                  }`}
-                                >
-                                  {service.isActive ? "Active" : "Inactive"}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            }
-          )
         )}
       </div>
 
@@ -1686,6 +1963,29 @@ export default function PricelistsPage() {
                         placeholder="e.g., 350000"
                       />
                     </div>
+
+                    {/* Insurance Provider */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Insurance Provider
+                      </label>
+                      <select
+                        value={formData.insuranceProvider}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            insuranceProvider: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      >
+                        {insuranceProviders.map((provider) => (
+                          <option key={provider} value={provider}>
+                            {provider}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Quick Calculate Button */}
@@ -1701,6 +2001,7 @@ export default function PricelistsPage() {
                             localWithInsurance: Math.round(basePrice * 1.4),
                             tourist: Math.round(basePrice * 2),
                             touristWithInsurance: Math.round(basePrice * 2.4),
+                            insurance: 0, // Always 0
                           },
                         });
                       }
@@ -2051,9 +2352,11 @@ export default function PricelistsPage() {
                 <p className="text-sm text-blue-800">
                   <strong>Export Info:</strong>
                   <br />
-                  • Only expanded categories will be exported
+                  • All services with checked prices will be exported
                   <br />
                   • Only checked price columns will be included
+                  <br />
+                  • Prices can be edited directly in the table
                   <br />• Currency: {selectedCurrency}
                   <br />• Clinic:{" "}
                   {clinics.find((c) => c._id === selectedClinic)?.name ||

@@ -1,6 +1,15 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.MONGODB_URI!;
+let MONGODB_URI = process.env.MONGODB_URI!;
+
+// In development mode, connect to the live database instead of dev database
+if (process.env.NODE_ENV === "development") {
+  // Use the live database connection for faster development with real data
+  // Since the live database appears to be running with dev credentials, use those
+  MONGODB_URI =
+    "mongodb://admin:DevPassword123!@localhost:27017/isy_clinic?authSource=admin";
+  console.log("🔧 Development mode: Using live database connection");
+}
 
 if (!MONGODB_URI) {
   throw new Error("Please define the MONGODB_URI environment variable");

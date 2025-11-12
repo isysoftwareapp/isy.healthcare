@@ -173,7 +173,7 @@ export default function AdminDashboard() {
               <p className="text-2xl font-bold text-gray-900">
                 $
                 {Object.values(stats)
-                  .reduce((sum, s) => sum + s.monthlyRevenue, 0)
+                  .reduce((sum, s) => sum + (s.monthlyRevenue ?? 0), 0)
                   .toLocaleString()}
               </p>
             </div>
@@ -272,12 +272,12 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-600">
-                          {clinic.contactInfo.phone}
+                          {clinic.contactInfo?.phone || "-"}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-600">
-                          {clinic.contactInfo.email}
+                          {clinic.contactInfo?.email || "-"}
                         </span>
                       </div>
                     </div>
@@ -306,8 +306,9 @@ export default function AdminDashboard() {
                         <p className="text-xs text-gray-500">Revenue (Month)</p>
                         <p className="text-lg font-semibold text-gray-900">
                           $
-                          {stats[clinic._id]?.monthlyRevenue.toLocaleString() ||
-                            0}
+                          {(
+                            stats[clinic._id]?.monthlyRevenue ?? 0
+                          ).toLocaleString()}
                         </p>
                       </div>
                     </div>

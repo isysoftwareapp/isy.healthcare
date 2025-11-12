@@ -67,14 +67,20 @@ export default function AppointmentBookingForm({
   const [error, setError] = useState("");
   const [step, setStep] = useState(1);
 
-  // Fetch practitioners
+  // Fetch practitioners (doctors, nurses, and other medical staff)
   useEffect(() => {
     const fetchPractitioners = async () => {
       try {
-        const response = await fetch("/api/users?role=Doctor,Nurse");
+        const response = await fetch(
+          "/api/users?role=Doctor,Nurse,Laboratory,Radiology,Pharmacy"
+        );
         if (response.ok) {
           const data = await response.json();
-          setPractitioners(data.data || []);
+          // Filter to only active practitioners
+          const activePractitioners = (data.users || data.data || []).filter(
+            (p: any) => p.isActive
+          );
+          setPractitioners(activePractitioners);
         }
       } catch (err) {
         console.error("Error fetching practitioners:", err);

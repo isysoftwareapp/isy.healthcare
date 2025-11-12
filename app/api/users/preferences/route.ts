@@ -13,17 +13,13 @@ export async function PATCH(request: NextRequest) {
 
     await connectDB();
     const body = await request.json();
-    const { language, theme, notifications, currency, timezone, country } =
-      body;
+    const { language, theme, notifications } = body;
 
     const updateData: any = {};
     if (language) updateData["preferences.language"] = language;
     if (theme) updateData["preferences.theme"] = theme;
     if (notifications !== undefined)
       updateData["preferences.notifications"] = notifications;
-    if (currency) updateData["preferences.currency"] = currency;
-    if (timezone) updateData["preferences.timezone"] = timezone;
-    if (country) updateData["preferences.country"] = country;
 
     const user = await User.findOneAndUpdate(
       { email: session.user.email },
