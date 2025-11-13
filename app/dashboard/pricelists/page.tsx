@@ -25,6 +25,7 @@ interface Service {
     name: string;
   };
   insuranceProvider?: string; // New field for insurance provider dropdown
+  insuranceProvider2?: string; // Second insurance provider field
   // Additional hospital fields
   serviceCode?: string;
   unit?: string;
@@ -105,10 +106,12 @@ export default function PricelistsPage() {
     tourist: true,
     touristWithInsurance: true,
     insurance: true,
+    insurance2: true,
   });
 
-  // Insurance provider column title
+  // Insurance provider column titles
   const [insuranceColumnTitle, setInsuranceColumnTitle] = useState("none");
+  const [insuranceColumnTitle2, setInsuranceColumnTitle2] = useState("none");
 
   // Copy/paste functionality
   const [copiedServiceNames, setCopiedServiceNames] = useState<
@@ -159,6 +162,7 @@ export default function PricelistsPage() {
     // default assigned clinic; prefer current UI selection or user's first assigned clinic
     assignedClinic: selectedClinic || session?.user?.assignedClinics?.[0] || "",
     insuranceProvider: "Rp 0", // New field
+    insuranceProvider2: "Rp 0", // Second insurance provider field
     serviceCode: "",
     unit: "Session",
     estimatedDuration: 30,
@@ -243,6 +247,13 @@ export default function PricelistsPage() {
           });
         }
 
+        // Clear insurance provider fields on load so they always show "Rp 0"
+        filteredServices = filteredServices.map((service: Service) => ({
+          ...service,
+          insuranceProvider: undefined,
+          insuranceProvider2: undefined,
+        }));
+
         setServices(filteredServices);
       }
     } catch (error) {
@@ -311,6 +322,7 @@ export default function PricelistsPage() {
       },
       assignedClinic: service.assignedClinic._id,
       insuranceProvider: service.insuranceProvider || "none",
+      insuranceProvider2: service.insuranceProvider2 || "none",
       serviceCode: service.serviceCode || "",
       unit: service.unit || "Session",
       estimatedDuration: service.estimatedDuration || 30,
@@ -353,6 +365,7 @@ export default function PricelistsPage() {
       },
       assignedClinic: "",
       insuranceProvider: "none",
+      insuranceProvider2: "none",
       serviceCode: "",
       unit: "Session",
       estimatedDuration: 30,
@@ -464,46 +477,93 @@ export default function PricelistsPage() {
         console.error("Error updating insurance provider:", error);
       }
     } else {
-      // Paste to all checked services in insurance provider column
-      const checkedServices = services.filter((service) =>
+      // Paste to insurance provider columns based on which checkboxes are selected
+      const checkedServicesInsurance1 = services.filter((service) =>
         isPriceSelected(service.serviceId, "insurance")
       );
+      const checkedServicesInsurance2 = services.filter((service) =>
+        isPriceSelected(service.serviceId, "insurance2")
+      );
 
-      for (const service of checkedServices) {
-        const price = copiedServiceNames[service.serviceName];
-        if (!price) continue;
+      // Paste to insurance provider 1 if it has checked items
+      if (checkedServicesInsurance1.length > 0) {
+        for (const service of checkedServicesInsurance1) {
+          const price = copiedServiceNames[service.serviceName];
+          if (!price) continue;
 
-        try {
-          const res = await fetch("/api/pricelists", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              _id: service._id,
-              insuranceProvider: price,
-            }),
-          });
+          try {
+            const res = await fetch("/api/pricelists", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                _id: service._id,
+                insuranceProvider: price,
+              }),
+            });
 
-          if (res.ok) {
-            // Update local state for this service
-            setServices((prevServices) =>
-              prevServices.map((s) =>
-                s.serviceId === service.serviceId
-                  ? { ...s, insuranceProvider: price }
-                  : s
-              )
-            );
-          } else {
+            if (res.ok) {
+              // Update local state for this service
+              setServices((prevServices) =>
+                prevServices.map((s) =>
+                  s.serviceId === service.serviceId
+                    ? { ...s, insuranceProvider: price }
+                    : s
+                )
+              );
+            } else {
+              console.error(
+                "Failed to update insurance provider for service:",
+                service.serviceId
+              );
+            }
+          } catch (error) {
             console.error(
-              "Failed to update insurance provider for service:",
-              service.serviceId
+              "Error updating insurance provider for service:",
+              service.serviceId,
+              error
             );
           }
-        } catch (error) {
-          console.error(
-            "Error updating insurance provider for service:",
-            service.serviceId,
-            error
-          );
+        }
+      }
+
+      // Paste to insurance provider 2 if it has checked items
+      if (checkedServicesInsurance2.length > 0) {
+        for (const service of checkedServicesInsurance2) {
+          const price = copiedServiceNames[service.serviceName];
+          if (!price) continue;
+
+          try {
+            const res = await fetch("/api/pricelists", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                _id: service._id,
+                insuranceProvider2: price,
+              }),
+            });
+
+            if (res.ok) {
+              // Update local state for this service
+              setServices((prevServices) =>
+                prevServices.map((s) =>
+                  s.serviceId === service.serviceId
+                    ? { ...s, insuranceProvider2: price }
+                    : s
+                )
+              );
+            } else {
+              console.error(
+                "Failed to update insurance provider 2 for service:",
+                service.serviceId
+              );
+            }
+          } catch (error) {
+            console.error(
+              "Error updating insurance provider 2 for service:",
+              service.serviceId,
+              error
+            );
+          }
         }
       }
     }
@@ -746,7 +806,8 @@ export default function PricelistsPage() {
           isPriceSelected(service.serviceId, "localWithInsurance") ||
           isPriceSelected(service.serviceId, "tourist") ||
           isPriceSelected(service.serviceId, "touristWithInsurance") ||
-          isPriceSelected(service.serviceId, "insurance")
+          isPriceSelected(service.serviceId, "insurance") ||
+          isPriceSelected(service.serviceId, "insurance2")
         );
       });
 
@@ -776,6 +837,9 @@ export default function PricelistsPage() {
       const hasInsuranceChecked = servicesWithCheckedPrices.some((service) =>
         isPriceSelected(service.serviceId, "insurance")
       );
+      const hasInsurance2Checked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "insurance2")
+      );
 
       if (visibleColumns.local && hasLocalChecked) headers[0].push("Local");
       if (visibleColumns.localWithInsurance && hasLocalWithInsuranceChecked)
@@ -789,6 +853,12 @@ export default function PricelistsPage() {
           insuranceColumnTitle === "none"
             ? "Insurance Provider"
             : insuranceColumnTitle
+        );
+      if (visibleColumns.insurance2 && hasInsurance2Checked)
+        headers[0].push(
+          insuranceColumnTitle2 === "none"
+            ? "Insurance Provider 2"
+            : insuranceColumnTitle2
         );
 
       // Table data - ONLY include rows where at least one price is checked
@@ -829,6 +899,13 @@ export default function PricelistsPage() {
           isPriceSelected(service.serviceId, "insurance")
         )
           row.push(service.insuranceProvider || "Rp 0");
+
+        if (
+          visibleColumns.insurance2 &&
+          hasInsurance2Checked &&
+          isPriceSelected(service.serviceId, "insurance2")
+        )
+          row.push(service.insuranceProvider2 || "Rp 0");
 
         row.push(service.isActive ? "Active" : "Inactive");
         return row;
@@ -881,7 +958,8 @@ export default function PricelistsPage() {
           isPriceSelected(service.serviceId, "localWithInsurance") ||
           isPriceSelected(service.serviceId, "tourist") ||
           isPriceSelected(service.serviceId, "touristWithInsurance") ||
-          isPriceSelected(service.serviceId, "insurance")
+          isPriceSelected(service.serviceId, "insurance") ||
+          isPriceSelected(service.serviceId, "insurance2")
         );
       });
 
@@ -909,6 +987,9 @@ export default function PricelistsPage() {
       const hasInsuranceChecked = servicesWithCheckedPrices.some((service) =>
         isPriceSelected(service.serviceId, "insurance")
       );
+      const hasInsurance2Checked = servicesWithCheckedPrices.some((service) =>
+        isPriceSelected(service.serviceId, "insurance2")
+      );
 
       if (visibleColumns.local && hasLocalChecked) headers.push("Local");
       if (visibleColumns.localWithInsurance && hasLocalWithInsuranceChecked)
@@ -921,6 +1002,12 @@ export default function PricelistsPage() {
           insuranceColumnTitle === "none"
             ? "Insurance Provider"
             : insuranceColumnTitle
+        );
+      if (visibleColumns.insurance2 && hasInsurance2Checked)
+        headers.push(
+          insuranceColumnTitle2 === "none"
+            ? "Insurance Provider 2"
+            : insuranceColumnTitle2
         );
 
       // Map the filtered services
@@ -972,6 +1059,17 @@ export default function PricelistsPage() {
               ? "Insurance Provider"
               : insuranceColumnTitle
           ] = service.insuranceProvider || "Rp 0";
+
+        if (
+          visibleColumns.insurance2 &&
+          hasInsurance2Checked &&
+          isPriceSelected(service.serviceId, "insurance2")
+        )
+          row[
+            insuranceColumnTitle2 === "none"
+              ? "Insurance Provider 2"
+              : insuranceColumnTitle2
+          ] = service.insuranceProvider2 || "Rp 0";
 
         return row;
       });
@@ -1194,7 +1292,7 @@ export default function PricelistsPage() {
               onClick={() => pasteServiceNames()}
               disabled={Object.keys(copiedServiceNames).length === 0}
               className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
-              title="Paste service names to matching insurance provider fields"
+              title="Paste to checked insurance provider fields"
             >
               <svg
                 className="w-4 h-4"
@@ -1395,6 +1493,49 @@ export default function PricelistsPage() {
                           <option key={provider} value={provider}>
                             {provider === "none"
                               ? "Insurance Provider"
+                              : provider}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </th>
+                )}
+                {visibleColumns.insurance2 && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={services.every((service) =>
+                          isPriceSelected(service.serviceId, "insurance2")
+                        )}
+                        onChange={() => {
+                          const allSelected = services.every((service) =>
+                            isPriceSelected(service.serviceId, "insurance2")
+                          );
+                          const newSelected = new Set(selectedPrices);
+                          services.forEach((service) => {
+                            const key = `${service.serviceId}_insurance2`;
+                            if (allSelected) {
+                              newSelected.delete(key);
+                            } else {
+                              newSelected.add(key);
+                            }
+                          });
+                          setSelectedPrices(newSelected);
+                        }}
+                        className="w-4 h-4 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
+                      />
+                      <select
+                        value={insuranceColumnTitle2}
+                        onChange={(e) =>
+                          setInsuranceColumnTitle2(e.target.value)
+                        }
+                        className="text-xs font-medium text-gray-500 uppercase tracking-wider bg-transparent border-none focus:ring-0 focus:outline-none cursor-pointer"
+                      >
+                        {insuranceProviders.map((provider) => (
+                          <option key={provider} value={provider}>
+                            {provider === "none"
+                              ? "Insurance Provider 2"
                               : provider}
                           </option>
                         ))}
@@ -1604,31 +1745,37 @@ export default function PricelistsPage() {
                           <input
                             type="text"
                             value={service.insuranceProvider || "Rp 0"}
-                            onChange={(e) => {
-                              // Update service insurance provider
-                              const updatedService = {
-                                ...service,
-                                insuranceProvider: e.target.value,
-                              };
-                              setServices((prev) =>
-                                prev.map((s) =>
-                                  s.serviceId === service.serviceId
-                                    ? updatedService
-                                    : s
-                                )
-                              );
-                            }}
-                            className="w-32 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-orange-500 focus:border-orange-500"
+                            readOnly
+                            className="w-32 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-orange-500 focus:border-orange-500 bg-gray-50"
                             onClick={(e) => e.stopPropagation()}
-                            list={`insurance-options-${service.serviceId}`}
                           />
-                          <datalist
-                            id={`insurance-options-${service.serviceId}`}
-                          >
-                            {insuranceProviders.map((provider) => (
-                              <option key={provider} value={provider} />
-                            ))}
-                          </datalist>
+                        </div>
+                      </div>
+                    </td>
+                  )}
+                  {visibleColumns.insurance2 && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isPriceSelected(
+                            service.serviceId,
+                            "insurance2"
+                          )}
+                          onChange={() =>
+                            toggleServicePrice(service.serviceId, "insurance2")
+                          }
+                          className="w-4 h-4 text-orange-600 rounded"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={service.insuranceProvider2 || "Rp 0"}
+                            readOnly
+                            className="w-32 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-orange-500 focus:border-orange-500 bg-gray-50"
+                            onClick={(e) => e.stopPropagation()}
+                          />
                         </div>
                       </div>
                     </td>
