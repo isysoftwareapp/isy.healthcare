@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# set -euo pipefail  # Commented out for compatibility
 
 # server_clone_and_deploy.sh
 # Usage: sudo bash server_clone_and_deploy.sh [branch]
