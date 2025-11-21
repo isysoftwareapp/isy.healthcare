@@ -44,6 +44,15 @@ services:
       - ./public:/app/public
       - ./types:/app/types
 
+  retail:
+    build:
+      context: ./retail
+      dockerfile: Dockerfile
+    container_name: isy-healthcare-retail-dev
+    restart: unless-stopped
+    depends_on:
+      - nginx
+
   nginx:
     image: nginx:alpine
     container_name: isy-healthcare-nginx-dev

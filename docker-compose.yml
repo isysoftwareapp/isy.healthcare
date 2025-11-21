@@ -39,6 +39,15 @@ services:
     depends_on:
       - mongodb
 
+  retail:
+    build:
+      context: ./retail
+      dockerfile: Dockerfile
+    container_name: isy-healthcare-retail
+    restart: unless-stopped
+    depends_on:
+      - nginx
+
   nginx:
     image: nginx:alpine
     container_name: isy-healthcare-nginx

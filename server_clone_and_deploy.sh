@@ -54,7 +54,7 @@ clean_existing_deploy() {
     fi
 
     # Also attempt to stop common service containers if present
-    for NAME in isy-healthcare-nginx isy-healthcare-mongodb isy-healthcare-certbot; do
+    for NAME in isy-healthcare-nginx isy-healthcare-mongodb isy-healthcare-certbot isy-healthcare-retail; do
       CID=$(sudo docker ps -aq --filter "name=$NAME" || true)
       if [ -n "$CID" ]; then
         echo "Removing container $NAME ($CID)"
@@ -101,6 +101,18 @@ else
 fi
 
 cd "$RELEASE_DIR"
+
+# Build the retail Vite project
+if [ -d "retail" ]; then
+  echo "Building retail project..."
+  cd retail
+  if command -v npm >/dev/null 2>&1; then
+    npm ci && npm run build
+  else
+    echo "npm not found; skipping retail build (ensure it's pre-built)"
+  fi
+  cd ..
+fi
 
 # If SSL nginx config is included, apply it into the release dir (we'll stage it)
 if [ -f "nginx-ssl.conf" ]; then
@@ -188,7 +200,7 @@ cd "$RELEASE_DIR"
 
 # Remove any existing containers with the compose service names to avoid name
 # conflicts when docker compose attempts to create containers with fixed names.
-for NAME in isy-healthcare isy-healthcare-nginx isy-healthcare-certbot isy-healthcare-mongodb; do
+for NAME in isy-healthcare isy-healthcare-nginx isy-healthcare-certbot isy-healthcare-mongodb isy-healthcare-retail; do
   CID=$(sudo docker ps -aq --filter "name=$NAME" || true)
   if [ -n "$CID" ]; then
     echo "Found existing container(s) for $NAME: $CID - removing to avoid conflict"
