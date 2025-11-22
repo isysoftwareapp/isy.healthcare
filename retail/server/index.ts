@@ -82,6 +82,10 @@ const authenticateToken = (req: any, res: any, next: any) => {
 };
 
 // Routes
+app.get("/api/test", (req, res) => {
+  res.json({ message: "API is working" });
+});
+
 app.post("/api/auth", async (req, res) => {
   console.log("🔐 Auth request received");
   console.log("Request body:", req.body);
