@@ -459,3 +459,131 @@ print(
     services.length +
     " services"
 );
+
+// Initialize retail database
+db = db.getSiblingDB("retail");
+
+// Create collections for retail app
+db.createCollection("contents");
+db.createCollection("admins");
+
+// Create default admin user for retail
+db.admins.insertOne({
+  username: "admin",
+  password: "$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi", // bcrypt hash for "admin123"
+  createdAt: new Date(),
+  updatedAt: new Date(),
+});
+
+// Create default site content
+db.contents.insertOne({
+  type: "site",
+  content: {
+    hero: {
+      badge: "Transform Your Business",
+      titleLine1: "Modern POS &",
+      titleLine2: "Kiosk Solutions",
+      subtitle: "Streamline operations, boost sales, and deliver exceptional customer experiences with our cutting-edge retail technology.",
+      ctaPrimary: "Get Started",
+      ctaSecondary: "Learn More",
+      backgroundImage: "/api/placeholder/1920/1080",
+    },
+    features: [
+      {
+        icon: "Zap",
+        title: "Lightning Fast",
+        description: "Process transactions in seconds with our optimized hardware and software solutions.",
+      },
+      {
+        icon: "Shield",
+        title: "Secure & Reliable",
+        description: "Bank-grade security with 99.9% uptime and comprehensive data protection.",
+      },
+      {
+        icon: "Smartphone",
+        title: "Mobile Ready",
+        description: "Seamless integration with mobile payments, loyalty programs, and inventory management.",
+      },
+    ],
+    ecosystem: [
+      {
+        icon: "Monitor",
+        title: "POS Terminals",
+        description: "High-performance point-of-sale systems for retail and hospitality.",
+      },
+      {
+        icon: "Smartphone",
+        title: "Mobile POS",
+        description: "Take payments anywhere with our mobile POS solutions.",
+      },
+      {
+        icon: "QrCode",
+        title: "QR Payments",
+        description: "Accept QR code payments from all major digital wallets.",
+      },
+      {
+        icon: "Printer",
+        title: "Receipt Printers",
+        description: "Fast, reliable thermal printers for receipts and labels.",
+      },
+    ],
+    pricing: [
+      {
+        name: "Starter",
+        price: "IDR 2,500,000",
+        period: "one-time",
+        features: [
+          "Basic POS Terminal",
+          "1 Year Warranty",
+          "Basic Support",
+          "Software License",
+        ],
+        popular: false,
+        cta: "Get Started",
+      },
+      {
+        name: "Professional",
+        price: "IDR 5,000,000",
+        period: "one-time",
+        features: [
+          "Advanced POS Terminal",
+          "2 Year Warranty",
+          "Priority Support",
+          "Software License",
+          "Inventory Management",
+          "Basic Reporting",
+        ],
+        popular: true,
+        cta: "Get Started",
+      },
+      {
+        name: "Enterprise",
+        price: "IDR 10,000,000",
+        period: "one-time",
+        features: [
+          "Premium POS Terminal",
+          "3 Year Warranty",
+          "24/7 Support",
+          "Software License",
+          "Advanced Inventory",
+          "Advanced Reporting",
+          "API Access",
+          "Custom Integration",
+        ],
+        popular: false,
+        cta: "Contact Sales",
+      },
+    ],
+    contact: {
+      title: "Ready to Transform Your Business?",
+      subtitle: "Get in touch with our sales team to discuss your specific needs and find the perfect solution for your business.",
+      email: "sales@isy.software",
+      phone: "+62 812-3456-7890",
+      address: "Jakarta, Indonesia",
+    },
+  },
+  createdAt: new Date(),
+  updatedAt: new Date(),
+});
+
+print("Retail database initialized successfully");

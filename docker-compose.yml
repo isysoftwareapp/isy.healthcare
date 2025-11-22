@@ -48,6 +48,22 @@ services:
     depends_on:
       - nginx
 
+  retail-api:
+    build:
+      context: ./retail
+      dockerfile: server/Dockerfile
+    container_name: isy-healthcare-retail-api
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - MONGO_URI=mongodb://admin:SecurePassword123!@mongodb:27017/isy_clinic?authSource=admin
+      - JWT_SECRET=RETAIL_JWT_SECRET_CHANGE_IN_PRODUCTION_MIN_32_CHARS
+      - NODE_ENV=production
+    depends_on:
+      - mongodb
+    ports:
+      - "3001:3001"
+
   nginx:
     image: nginx:alpine
     container_name: isy-healthcare-nginx

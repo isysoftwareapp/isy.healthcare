@@ -5,7 +5,7 @@
 
 import { SiteContent } from "../types";
 
-const API_BASE = "/api";
+const API_BASE = "/retail/api";
 
 export const fetchSiteContent = async (): Promise<SiteContent | null> => {
   console.log("🚀 fetchSiteContent called");

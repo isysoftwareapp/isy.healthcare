@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import express from "express";
+import express, { Request, Response } from "express";
 import { MongoClient } from "mongodb";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -16,7 +16,7 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json());
 
 let db: any;
 let client: MongoClient;
@@ -26,7 +26,7 @@ const connectDB = async () => {
   try {
     client = new MongoClient(MONGO_URI);
     await client.connect();
-    db = client.db();
+    db = client.db('retail');
     console.log("✅ Connected to MongoDB (Retail Database)");
 
     // Create default admin user if not exists
@@ -82,11 +82,11 @@ const authenticateToken = (req: any, res: any, next: any) => {
 };
 
 // Routes
-app.get("/api/test", (req, res) => {
+app.get("/api/test", (req: Request, res: Response) => {
   res.json({ message: "API is working" });
 });
 
-app.post("/api/auth", async (req, res) => {
+app.post("/api/auth", async (req: Request, res: Response) => {
   console.log("🔐 Auth request received");
   console.log("Request body:", req.body);
   console.log("Request headers:", req.headers);
@@ -123,7 +123,7 @@ app.post("/api/auth", async (req, res) => {
   }
 });
 
-app.get("/api/content", async (req, res) => {
+app.get("/api/content", async (req: Request, res: Response) => {
   try {
     const contents = db.collection("contents");
     const siteContent = await contents.findOne({ type: "site" });
@@ -139,7 +139,7 @@ app.get("/api/content", async (req, res) => {
   }
 });
 
-app.post("/api/content", authenticateToken, async (req, res) => {
+app.post("/api/content", authenticateToken, async (req: Request, res: Response) => {
   try {
     const { content } = req.body;
 
@@ -168,7 +168,7 @@ app.post("/api/content", authenticateToken, async (req, res) => {
 });
 
 // Health check
-app.get("/health", (req, res) => {
+app.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
