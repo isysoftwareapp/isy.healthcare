@@ -16,7 +16,7 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 let db: any;
 let client: MongoClient;
@@ -26,7 +26,7 @@ const connectDB = async () => {
   try {
     client = new MongoClient(MONGO_URI);
     await client.connect();
-    db = client.db('retail');
+    db = client.db("retail");
     console.log("✅ Connected to MongoDB (Retail Database)");
 
     // Create default admin user if not exists
@@ -94,7 +94,12 @@ app.post("/api/auth", async (req: Request, res: Response) => {
   try {
     const { username, password } = req.body;
 
-    console.log("Username:", username, "Password length:", password ? password.length : 0);
+    console.log(
+      "Username:",
+      username,
+      "Password length:",
+      password ? password.length : 0
+    );
 
     const admins = db.collection("admins");
     const admin = await admins.findOne({ username });
@@ -139,33 +144,37 @@ app.get("/api/content", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/content", authenticateToken, async (req: Request, res: Response) => {
-  try {
-    const { content } = req.body;
+app.post(
+  "/api/content",
+  authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      const { content } = req.body;
 
-    if (!content) {
-      return res.status(400).json({ error: "Content is required" });
-    }
+      if (!content) {
+        return res.status(400).json({ error: "Content is required" });
+      }
 
-    const contents = db.collection("contents");
-    await contents.updateOne(
-      { type: "site" },
-      {
-        $set: {
-          content,
-          updatedAt: new Date(),
-          updatedBy: req.user.username,
+      const contents = db.collection("contents");
+      await contents.updateOne(
+        { type: "site" },
+        {
+          $set: {
+            content,
+            updatedAt: new Date(),
+            updatedBy: req.user.username,
+          },
         },
-      },
-      { upsert: true }
-    );
+        { upsert: true }
+      );
 
-    res.json({ success: true, message: "Content saved successfully" });
-  } catch (error) {
-    console.error("Save content error:", error);
-    res.status(500).json({ error: "Failed to save content" });
+      res.json({ success: true, message: "Content saved successfully" });
+    } catch (error) {
+      console.error("Save content error:", error);
+      res.status(500).json({ error: "Failed to save content" });
+    }
   }
-});
+);
 
 // Health check
 app.get("/health", (req: Request, res: Response) => {
